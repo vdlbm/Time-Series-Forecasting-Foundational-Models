@@ -169,3 +169,6 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Almacena las variables de entorno como las api keys
+.env

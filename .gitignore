@@ -172,3 +172,6 @@ cython_debug/
 
 # Almacena las variables de entorno como las api keys
 .env
+
+# lag_llama_up
+lag_llama_up/

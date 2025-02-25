@@ -64,9 +64,17 @@ def split_data(df):
     """
     Splits the data into train and validation sets.
     """
-    df['DateTime'] = pd.to_datetime(df['DateTime'])
-    df.set_index('DateTime', inplace=True)
+    df = prepare_indexed_temporal_data(df)
     train = df[df.index.year < 2024]
     val = df[df.index.year == 2024]
 
     return train, val
+
+def prepare_indexed_temporal_data(df):
+    """
+    Prepares the data for the model.
+    """
+    df['DateTime'] = pd.to_datetime(df['DateTime'])
+    df.set_index('DateTime', inplace=True)
+
+    return df

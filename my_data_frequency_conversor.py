@@ -77,6 +77,9 @@ def prepare_indexed_temporal_data(df):
     df['DateTime'] = pd.to_datetime(df['DateTime'])
     df.set_index('DateTime', inplace=True)
 
+    # cambio nombre de columa de Open a y
+    df.rename(columns={'Open': 'y'}, inplace=True)
+
     return df
 
 def convert_to_nixtla(df):
@@ -84,8 +87,10 @@ def convert_to_nixtla(df):
     Converts the data to the format required by Nixtla
     in TimeGPT and statforecast.
     '''
-    df["ds"] = df.index
-    df["y"] = df["Open"]
-    df["unique_id"] = "serie_1"
-    df = df.reset_index(drop=True) 
-    return df
+    # Creamos un dataframe vacío en res
+    res = pd.DataFrame(columns=['ds', 'y', 'unique_id']) 
+    res['ds'] = df.index
+    res['y'] = df.values
+    res['unique_id'] = 'Value'
+    #res = df.reset_index(drop=True) 
+    return res

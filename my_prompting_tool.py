@@ -59,7 +59,7 @@ def paraphrase_initial(data_name):
     if data_name == 'HeartRateDataset':
         desp = "The series contains 1800 uniformly spaced instantaneous " \
                "heart rate measurements from a single subject. "
-
+    
     return desp
 
 
@@ -81,7 +81,7 @@ def paraphrase_seq2lan(seq, desp):
 def describe_change(t1, t2):
     if t2 > t1:
         return f"from {t1} increasing to {t2}, "
-    elif t2 < t1:
+    elif t2 < t1: 
         return f"from {t1} decreasing to {t2}, "
     else:
         return f"it remains flat from {t2} to {t1}，"

@@ -1,5 +1,5 @@
 # Time-Series-Forecasting-Foundational-Models
-Comparison between different models for Time Series Forecasting trying to find the state-of-art of the predicion of economic and financial Time Series.
+Comparison between different models for Time Series Forecasting trying to find the state-of-art of the prediction of economic and financial Time Series.
 
 # Classical Models
 

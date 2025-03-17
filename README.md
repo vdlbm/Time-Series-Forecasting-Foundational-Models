@@ -29,6 +29,7 @@ DeepSeek
 
 LLaMA
 
+## Credits
 
 This project uses code from llmtime by Nate Gruver, Marc Finzi y Shikai Qiu, available under the MIT License.
 Link to the original repository: (https://github.com/ngruver/llmtime)

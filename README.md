@@ -1,7 +1,7 @@
 # Time-Series-Forecasting-Foundational-Models
 Comparison between different models for Time Series Forecasting trying to find the state-of-art of the prediction of economic and financial Time Series.
 
-# Classical Models
+## Classical Models
 
 ARIMA
 
@@ -11,7 +11,7 @@ Holt
 
 Holt-Winters
 
-# Foundational Time Series Models
+## Foundational Time Series Models
 
 Moirai
 
@@ -21,7 +21,7 @@ Lag-LLama
 
 Chronos
 
-# General Foundational Models
+## General Foundational Models
 
 ChatGPT
 

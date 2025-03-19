@@ -1,163 +1,153 @@
 import os
 import openai
-
-openai.api_key = ''
-openai.api_base = os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1")
 import pandas as pd
 from data1.small_context import get_datasets
 import re
-# from llama_utils import llama_api_qa
+from llama_utils import llama_api_qa
 from data1.serialize import SerializerSettings
 
-# Add situation description by each dataset
+# Configuración de la API de OpenAI
+openai.api_key = ''  # Clave de API de OpenAI (debe ser proporcionada)
+openai.api_base = os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1")  # URL base de la API
 
-model_select = 'gpt-4-1106-preview'
+# Selección del modelo a utilizar
+# model_select = 'gpt-4-1106-preview'  # Opción alternativa
+model_select = 'llama2-13b-chat'  # Modelo seleccionado
+
+# Hiperparámetros para GPT-3.5
 gpt3_hypers = dict(
-    temp=0.7,
-    alpha=0.95,
-    beta=0.3,
-    basic=False,
-    settings=SerializerSettings(base=10, prec=3, signed=True, half_bin_correction=True)
+    temp=0.7,  # Temperatura para el muestreo
+    alpha=0.95,  # Parámetro de escalado
+    beta=0.3,  # Parámetro de desplazamiento
+    basic=False,  # Si se usa la versión básica del escalado
+    settings=SerializerSettings(base=10, prec=3, signed=True, half_bin_correction=True)  # Configuración de serialización
 )
 
+# Hiperparámetros para GPT-4
 gpt4_hypers = dict(
-    alpha=0.3,
-    basic=True,
-    temp=0.5,
-    top_p=0.5,
-    settings=SerializerSettings(base=10, prec=3, signed=True, time_sep=', ', bit_sep='', minus_sign='-')
+    alpha=0.3,  # Parámetro de escalado
+    basic=True,  # Si se usa la versión básica del escalado
+    temp=0.5,  # Temperatura para el muestreo
+    top_p=0.5,  # Parámetro de muestreo top-p
+    settings=SerializerSettings(base=10, prec=3, signed=True, time_sep=', ', bit_sep='', minus_sign='-')  # Configuración de serialización
 )
 
+# Mensajes de hiperparámetros para GPT-3.5 y GPT-4 (en inglés, ya que son parte del prompt)
 hyper_gpt35 = f"Set hyperparameters to: temp={gpt3_hypers['temp']}, " \
-                           f"alpha={gpt3_hypers['alpha']}, beta={gpt3_hypers['beta']}, " \
-                           f"basic={gpt3_hypers['basic']}, settings={gpt3_hypers['settings']}"
+              f"alpha={gpt3_hypers['alpha']}, beta={gpt3_hypers['beta']}, " \
+              f"basic={gpt3_hypers['basic']}, settings={gpt3_hypers['settings']}"
 
 hyper_gpt4 = f"Set hyperparameters to: alpha={gpt4_hypers['alpha']}, " \
-                           f"temp={gpt4_hypers['temp']}, top_p={gpt4_hypers['top_p']}, " \
-                           f"basic={gpt4_hypers['basic']}, settings={gpt4_hypers['settings']}"
+             f"temp={gpt4_hypers['temp']}, top_p={gpt4_hypers['top_p']}, " \
+             f"basic={gpt4_hypers['basic']}, settings={gpt4_hypers['settings']}"
+
+# Función para generar una descripción inicial de cada conjunto de datos (en inglés, ya que es parte del prompt)
 def paraphrase_initial(data_name):
-    if data_name == 'AirPassengersDataset':
-        desp = "This is a series of monthly passenger numbers for international flights, " \
-               "where each value is in thousands of passengers for that month. "
-    if data_name == 'AusBeerDataset':
-        desp = "This is a quarterly series of beer production, where each value is " \
-               "the kilolitres of beer produced in that quarter. "
-    if data_name == 'GasRateCO2Dataset':
-        desp = "This is a time series dataset describing monthly carbon dioxide emissions. "
-    if data_name == 'MonthlyMilkDataset':
-        desp = "This is a time-series data set describing monthly milk production, " \
-               "Each number is the average number of tons of milk produced by each cow during the month. "
-    if data_name == 'SunspotsDataset':
-        desp = "This is a dataset that records the number of sunspots in each month, " \
-               "where each data is the number of sunspots in that month. "
-    if data_name == 'WineDataset':
-        desp = "This is a dataset of monthly wine production in Australia," \
-               "where each figure is the number of wine bottles produced in that month. "
-    if data_name == 'WoolyDataset':
-        desp = "This is an Australian yarn production for each quarter, " \
-               "where each value is how many tons of yarn were produced in that quarter. "
-    if data_name == 'HeartRateDataset':
-        desp = "The series contains 1800 uniformly spaced instantaneous " \
-               "heart rate measurements from a single subject. "
     
+    if data_name == 'EthereumUSD_Monthly':
+        desp = "This is a monthly time series dataset describing the price of Ethereum (ETH) in US dollars (USD). " \
+               "Each value represents the average price of Ethereum in USD for that month. "
+    elif data_name == 'EthereumUSD_Daily':
+        desp = "This is a daily time series dataset describing the price of Ethereum (ETH) in US dollars (USD). " \
+               "Each value represents the average price of Ethereum in USD for that day. "
+    elif data_name == 'EthereumUSD_Hourly':
+        desp = "This is an hourly time series dataset describing the price of Ethereum (ETH) in US dollars (USD). " \
+               "Each value represents the average price of Ethereum in USD for that hour. "
+    else:
+        desp = "Description not available for this dataset."
+
     return desp
 
-
-# Transfer Sequences to Natural Language.
-# seq: <class 'pandas.core.series.Series'>, des: String
+# Función para convertir una secuencia en lenguaje natural (en inglés, ya que es parte del prompt)
 def paraphrase_seq2lan(seq, desp):
     results = ''
-    # The values of the sequence are read one by one and a description is output
+    # Lee los valores de la secuencia uno por uno y genera una descripción
     for i in range(len(seq) - 1):
-        t1 = seq.iloc[i]  # Select elements by position
-        t2 = seq.iloc[i + 1]  # Select next elements by position
-        result = describe_change(t1, t2)
+        t1 = seq.iloc[i]  # Selecciona el elemento actual
+        t2 = seq.iloc[i + 1]  # Selecciona el siguiente elemento
+        result = describe_change(t1, t2)  # Describe el cambio entre t1 y t2
         results += result
-    lan = desp + results
+    lan = desp + results  # Combina la descripción inicial con los cambios
 
     return lan
 
-
+# Función para describir el cambio entre dos valores (en inglés, ya que es parte del prompt)
 def describe_change(t1, t2):
     if t2 > t1:
         return f"from {t1} increasing to {t2}, "
-    elif t2 < t1: 
+    elif t2 < t1:
         return f"from {t1} decreasing to {t2}, "
     else:
-        return f"it remains flat from {t2} to {t1}，"
+        return f"it remains flat from {t2} to {t1}, "
 
-
-# Recover from language description to sequence
+# Función para recuperar una secuencia a partir de una descripción en lenguaje natural
 def recover_lan2seq(input_string):
-    # step 1: cut description
+    # Paso 1: Elimina la descripción inicial
     dot_index = input_string.find('.')
     cleaned_string = input_string[dot_index + 1:].strip() if dot_index != -1 else input_string.strip()
 
-    # Step 2: task numbers
+    # Paso 2: Extrae los números de la cadena
     numbers = re.findall(r'(\d+\.\d+)', cleaned_string)
-    # Transfer to list
+    # Convierte los números a tipo float
     float_numbers = [float(num) for num in numbers]
 
-    # Step 3: Kill the doubled numbers
+    # Paso 3: Elimina los números duplicados
     filtered_numbers = [float_numbers[i] for i in range(len(float_numbers)) if i % 2 == 0]
-    # add the last one
+    # Añade el último número
     filtered_numbers.append(float_numbers[-1])
-    # recover to pandas Series
+    # Convierte la lista en una Serie de pandas
     result_series = pd.Series(filtered_numbers)
 
     return result_series
 
-
+# Función similar a recover_lan2seq pero específica para LLM
 def recover_lan2seq_llm(input_string):
-    # Step 2: task numbers
+    # Extrae los números de la cadena
     numbers = re.findall(r'(\d+\.\d+)', input_string)
-    # Transfer to list
+    # Convierte los números a tipo float
     float_numbers = [float(num) for num in numbers]
 
-    # Step 3: Kill the doubled numbers
+    # Elimina los números duplicados
     filtered_numbers = [float_numbers[i] for i in range(len(float_numbers)) if i % 2 == 0]
-    # add the last one
+    # Añade el último número
     filtered_numbers.append(float_numbers[-1])
-    # recover to pandas Series
+    # Convierte la lista en una Serie de pandas
     result_series = pd.Series(filtered_numbers)
 
     return result_series
 
-
+# Función para procesar un conjunto de datos y convertirlo en lenguaje natural
 def paraphrase_nlp(datasets_list):
-    # Train_lan: the paraphrased train sequence
-    # Test_lan: the paraphrased test sequence
-    # seq_test: pandas sequence of test
     datasets = get_datasets()
     for dataset_name in datasets_list:
-        desp = paraphrase_initial(dataset_name)
+        desp = paraphrase_initial(dataset_name)  # Obtiene la descripción inicial
         data = datasets[dataset_name]
         train, test = data
-        print("Train len:", train.shape)
-        print("test len:", test.shape)
-        Train_lan = paraphrase_seq2lan(train, desp)
-        Test_lan = paraphrase_seq2lan(test, desp)
-        seq_test = recover_lan2seq(Test_lan)
-        print("seq pred len:", seq_test.shape)
+        print("Longitud del entrenamiento:", train.shape)
+        print("Longitud de la prueba:", test.shape)
+        Train_lan = paraphrase_seq2lan(train, desp)  # Convierte el conjunto de entrenamiento a lenguaje natural
+        Test_lan = paraphrase_seq2lan(test, desp)  # Convierte el conjunto de prueba a lenguaje natural
+        seq_test = recover_lan2seq(Test_lan)  # Recupera la secuencia de prueba
+        print("Longitud de la secuencia predicha:", seq_test.shape)
         if test.shape != seq_test.shape:
-            print("Warning! The data lost!")
+            print("¡Advertencia! Se perdieron datos.")
 
     return Train_lan, Test_lan, seq_test
 
-
+# Función para procesar un conjunto de datos utilizando un modelo de lenguaje (LLM)
 def paraphrase_llm(datasets_list):
-    prompt = " analyze this time series and rewrite it" \
-             " as a trend-by-trend representation of discrete values. Only numerical " \
+    prompt = "Analyze this time series and rewrite it " \
+             "as a trend-by-trend representation of discrete values. Only numerical " \
              "changes are described, not date changes. For example, the template like {from 1.0 increasing to 2.0, " \
-             "from 2.0 decreasing to 0.5,} Be careful not to lose every sequence value. "
+             "from 2.0 decreasing to 0.5,}. Be careful not to lose every sequence value. "
     datasets = get_datasets()
 
     for dataset_name in datasets_list:
-        desp = paraphrase_initial(dataset_name)
+        desp = paraphrase_initial(dataset_name)  # Obtiene la descripción inicial
         data = datasets[dataset_name]
         train, test = data
-        content_train = "You are a useful assistant," + desp + str(train)
-        content_test = "You are a useful assistant," + desp + str(test)
+        content_train = "You are a useful assistant," + desp + str(train)  # Prepara el contenido para el entrenamiento
+        content_test = "You are a useful assistant," + desp + str(test)  # Prepara el contenido para la prueba
         response = openai.ChatCompletion.create(
             model=model_select,
             response_format={"type": "text"},
@@ -166,7 +156,7 @@ def paraphrase_llm(datasets_list):
                 {"role": "user", "content": content_train}
             ]
         )
-        Train_lan = response.choices[0].message.content
+        Train_lan = response.choices[0].message.content  # Obtiene la respuesta del modelo
         response = openai.ChatCompletion.create(
             model=model_select,
             response_format={"type": "text"},
@@ -175,66 +165,59 @@ def paraphrase_llm(datasets_list):
                 {"role": "user", "content": content_test}
             ]
         )
-        Test_lan = response.choices[0].message.content
+        Test_lan = response.choices[0].message.content  # Obtiene la respuesta del modelo
         print("Test_lan:", Test_lan)
-        seq_test = recover_lan2seq_llm(Test_lan)
+        seq_test = recover_lan2seq_llm(Test_lan)  # Recupera la secuencia de prueba
         if test.shape != seq_test.shape:
-            print("the process error!")
-            print("seq_test.shape:", seq_test.shape)
-            print("test.shape:", test.shape)
+            print("Error in the process!")
+            print("Shape of seq_test:", seq_test.shape)
+            print("Shape of test:", test.shape)
 
     return Train_lan, Test_lan, seq_test
 
+# Función para realizar predicciones utilizando un modelo de lenguaje (LLM)
 def paraphrasing_predict_llm(desp, train_lan, steps, model_name):
     if model_name == 'gpt-3.5-turbo-0125':
-        hyper_parameters_message = hyper_gpt35
+        hyper_parameters_message = hyper_gpt35  # Usa los hiperparámetros de GPT-3.5
     else:
-        hyper_parameters_message = hyper_gpt4
+        hyper_parameters_message = hyper_gpt4  # Usa los hiperparámetros de GPT-4
+
     prompt = "You are a helpful assistant that performs time series predictions. " \
              "The user will provide a sequence and you will predict the remaining sequence." \
              "The sequence is represented by decimal strings separated by commas. " \
              "Please continue the following sequence without producing any additional text. " \
              "Do not say anything like 'the next terms in the sequence are', just return the numbers."
-    # prompt_add = f"Please predict ahead in {steps} steps, one step means (from 1.0 increasing to 2.0,) or" \
-    #              "(from 2.0 decreasing to 0.5,), The final output follows exactly steps. Sequence:\n"
     prompt_add = (f"Predict the next {steps} steps, where each step follows the format (starting from 1.0 and increasing to 2.0) or (starting from 2.0 and decreasing to 0.5)."\
                   " The final output should precisely follow the specified number of steps. Provide a sequence:\n")
 
-    content_train = prompt + desp + prompt_add + train_lan
+    content_train = prompt + desp + prompt_add + train_lan  # Prepara el contenido para la predicción
     response = openai.ChatCompletion.create(
         model=model_name,
         response_format={"type": "text"},
         messages=[
-            {"role": "system", "content": hyper_parameters_message},
+           # {"role": "system", "content": hyper_parameters_message},
             {"role": "system", "content": prompt},
             {"role": "user", "content": content_train}
         ]
     )
-    Test_lan = response.choices[0].message.content
-    # print("Test_lan:", Test_lan)
-    seq_test = recover_lan2seq_llm(Test_lan)
+    Test_lan = response.choices[0].message.content  # Obtiene la respuesta del modelo
+    seq_test = recover_lan2seq_llm(Test_lan)  # Recupera la secuencia predicha
 
     return seq_test
 
-
+# Función para realizar predicciones utilizando el modelo LLaMA
 def paraphrasing_predict_llama(desp, train_lan, steps, model_name):
-    # prompt = "You are a helpful assistant that performs time series predictions. " \
-    #          "The user will provide a sequence and you will predict the remaining sequence." \
-    #          "The sequence is represented by decimal strings separated by commas. " \
-    #          "Please continue the following sequence without producing any additional text. " \
-    #          "Do not say anything like 'the next terms in the sequence are', just return the numbers."
-    prompt_add = f"Please predict ahead in {steps} steps, one step means (from 1.0 increasing to 2.0,) or" \
-                 "(from 2.0 decreasing to 0.5,), The final output follows exactly steps. Sequence:\n"
-    content_train = desp + prompt_add + train_lan
-    response = llama_api_qa(model_name, content_train)
-    seq_test = recover_lan2seq_llm(response)
+    prompt_add = f"Predict the next {steps} steps, where each step follows the format (from 1.0 increasing to 2.0) or " \
+                 "(from 2.0 decreasing to 0.5). The final output should precisely follow the specified number of steps. Sequence:\n"
+    content_train = desp + prompt_add + train_lan  # Prepara el contenido para la predicción
+    response = llama_api_qa(model_name, content_train)  # Obtiene la respuesta del modelo LLaMA
+    seq_test = recover_lan2seq_llm(response)  # Recupera la secuencia predicha
 
     return seq_test
 
-
-# test main
+# Función principal de prueba
 if __name__ == '__main__':
-    # initial
+    # Lista de conjuntos de datos a procesar
     datasets_list = [
         'AirPassengersDataset',
         'AusBeerDataset',
@@ -246,8 +229,8 @@ if __name__ == '__main__':
         'HeartRateDataset',
     ]
 
-    # traditional
+    # Procesamiento tradicional (sin LLM)
     paraphrase_nlp(datasets_list)
 
-    # LLM
+    # Procesamiento utilizando un modelo de lenguaje (LLM)
     paraphrase_llm(datasets_list)

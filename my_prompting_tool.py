@@ -1,10 +1,10 @@
 import os
 import openai
 import pandas as pd
-from data1.small_context import get_datasets
+
 import re
-from llama_utils import llama_api_qa
-from data1.serialize import SerializerSettings
+
+#from data1.serialize import SerializerSettings
 
 # Configuración de la API de OpenAI
 openai.api_key = ''  # Clave de API de OpenAI (debe ser proporcionada)
@@ -15,6 +15,8 @@ openai.api_base = os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1")
 model_select = 'llama2-13b-chat'  # Modelo seleccionado
 
 # Hiperparámetros para GPT-3.5
+'''
+
 gpt3_hypers = dict(
     temp=0.7,  # Temperatura para el muestreo
     alpha=0.95,  # Parámetro de escalado
@@ -41,16 +43,18 @@ hyper_gpt4 = f"Set hyperparameters to: alpha={gpt4_hypers['alpha']}, " \
              f"temp={gpt4_hypers['temp']}, top_p={gpt4_hypers['top_p']}, " \
              f"basic={gpt4_hypers['basic']}, settings={gpt4_hypers['settings']}"
 
+'''
+
 # Función para generar una descripción inicial de cada conjunto de datos (en inglés, ya que es parte del prompt)
 def paraphrase_initial(data_name):
     
-    if data_name == 'EthereumUSD_Monthly':
+    if data_name == 'ETH_MONTHS':
         desp = "This is a monthly time series dataset describing the price of Ethereum (ETH) in US dollars (USD). " \
                "Each value represents the average price of Ethereum in USD for that month. "
-    elif data_name == 'EthereumUSD_Daily':
+    elif data_name == 'ETH_DAYS':
         desp = "This is a daily time series dataset describing the price of Ethereum (ETH) in US dollars (USD). " \
                "Each value represents the average price of Ethereum in USD for that day. "
-    elif data_name == 'EthereumUSD_Hourly':
+    elif data_name == 'ETH_HOURS':
         desp = "This is an hourly time series dataset describing the price of Ethereum (ETH) in US dollars (USD). " \
                "Each value represents the average price of Ethereum in USD for that hour. "
     else:
@@ -58,7 +62,7 @@ def paraphrase_initial(data_name):
 
     return desp
 
-# Función para convertir una secuencia en lenguaje natural (en inglés, ya que es parte del prompt)
+# Función para convertir una secuencia en lenguaje natural 
 def paraphrase_seq2lan(seq, desp):
     results = ''
     # Lee los valores de la secuencia uno por uno y genera una descripción
@@ -71,11 +75,13 @@ def paraphrase_seq2lan(seq, desp):
 
     return lan
 
-# Función para describir el cambio entre dos valores (en inglés, ya que es parte del prompt)
+# Función para describir el cambio entre dos valores 
 def describe_change(t1, t2):
-    if t2 > t1:
+    t11 = t1.item()  # Convierte el valor a un tipo primitivo
+    t22 = t2.item()  # Convierte el valor a un tipo primitivo
+    if t22 > t11:
         return f"from {t1} increasing to {t2}, "
-    elif t2 < t1:
+    elif t22 < t11:
         return f"from {t1} decreasing to {t2}, "
     else:
         return f"it remains flat from {t2} to {t1}, "
@@ -117,22 +123,26 @@ def recover_lan2seq_llm(input_string):
     return result_series
 
 # Función para procesar un conjunto de datos y convertirlo en lenguaje natural
-def paraphrase_nlp(datasets_list):
-    datasets = get_datasets()
-    for dataset_name in datasets_list:
-        desp = paraphrase_initial(dataset_name)  # Obtiene la descripción inicial
-        data = datasets[dataset_name]
-        train, test = data
-        print("Longitud del entrenamiento:", train.shape)
-        print("Longitud de la prueba:", test.shape)
-        Train_lan = paraphrase_seq2lan(train, desp)  # Convierte el conjunto de entrenamiento a lenguaje natural
-        Test_lan = paraphrase_seq2lan(test, desp)  # Convierte el conjunto de prueba a lenguaje natural
-        seq_test = recover_lan2seq(Test_lan)  # Recupera la secuencia de prueba
-        print("Longitud de la secuencia predicha:", seq_test.shape)
-        if test.shape != seq_test.shape:
-            print("¡Advertencia! Se perdieron datos.")
+def paraphrase_nlp(dataset_name, train, test):
+    desp = paraphrase_initial(dataset_name)  # Obtiene la descripción inicial
+
+    print("Longitud del entrenamiento:", train.shape)
+    print("Longitud de la prueba:", test.shape)
+
+    # Convertir a lenguaje natural
+    Train_lan = paraphrase_seq2lan(train, desp)  
+    Test_lan = paraphrase_seq2lan(test, desp)  
+
+    # Recuperar la secuencia de prueba desde el lenguaje natural
+    seq_test = recover_lan2seq(Test_lan)  
+
+    print("Longitud de la secuencia predicha:", seq_test.shape)
+    
+    if test.shape != seq_test.shape:
+        print("Warning! Se perdieron datos.")
 
     return Train_lan, Test_lan, seq_test
+
 
 # Función para procesar un conjunto de datos utilizando un modelo de lenguaje (LLM)
 def paraphrase_llm(datasets_list):
@@ -140,7 +150,7 @@ def paraphrase_llm(datasets_list):
              "as a trend-by-trend representation of discrete values. Only numerical " \
              "changes are described, not date changes. For example, the template like {from 1.0 increasing to 2.0, " \
              "from 2.0 decreasing to 0.5,}. Be careful not to lose every sequence value. "
-    datasets = get_datasets()
+    
 
     for dataset_name in datasets_list:
         desp = paraphrase_initial(dataset_name)  # Obtiene la descripción inicial
@@ -177,11 +187,12 @@ def paraphrase_llm(datasets_list):
 
 # Función para realizar predicciones utilizando un modelo de lenguaje (LLM)
 def paraphrasing_predict_llm(desp, train_lan, steps, model_name):
+    '''
     if model_name == 'gpt-3.5-turbo-0125':
         hyper_parameters_message = hyper_gpt35  # Usa los hiperparámetros de GPT-3.5
     else:
         hyper_parameters_message = hyper_gpt4  # Usa los hiperparámetros de GPT-4
-
+    '''
     prompt = "You are a helpful assistant that performs time series predictions. " \
              "The user will provide a sequence and you will predict the remaining sequence." \
              "The sequence is represented by decimal strings separated by commas. " \
@@ -204,7 +215,7 @@ def paraphrasing_predict_llm(desp, train_lan, steps, model_name):
     seq_test = recover_lan2seq_llm(Test_lan)  # Recupera la secuencia predicha
 
     return seq_test
-
+'''
 # Función para realizar predicciones utilizando el modelo LLaMA
 def paraphrasing_predict_llama(desp, train_lan, steps, model_name):
     prompt_add = f"Predict the next {steps} steps, where each step follows the format (from 1.0 increasing to 2.0) or " \
@@ -214,7 +225,7 @@ def paraphrasing_predict_llama(desp, train_lan, steps, model_name):
     seq_test = recover_lan2seq_llm(response)  # Recupera la secuencia predicha
 
     return seq_test
-
+'''
 # Función principal de prueba
 if __name__ == '__main__':
     # Lista de conjuntos de datos a procesar

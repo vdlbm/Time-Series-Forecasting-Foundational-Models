@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np  
-import matplotlib.pyplot as plt 
 import datetime as dt
 
 
@@ -65,7 +64,7 @@ def split_data(df):
     Splits the data into train and validation sets.
     """
     df = prepare_indexed_temporal_data(df)
-    train = df[df.index.year < 2024]
+    train = df[(df.index.year < 2024) & (df.index.year > 2020)]
     val = df[df.index.year == 2024]
 
     return train, val
@@ -77,7 +76,7 @@ def prepare_indexed_temporal_data(df):
     df['DateTime'] = pd.to_datetime(df['DateTime'])
     df.set_index('DateTime', inplace=True)
 
-    # cambio nombre de columa de Open a y
+    # cambio nombre de columna de Open a y
     df.rename(columns={'Open': 'y'}, inplace=True)
 
     return df

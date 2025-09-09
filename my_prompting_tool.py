@@ -140,6 +140,8 @@ def paraphrase_nlp(dataset_name, train, test):
     
     if test.shape != seq_test.shape:
         print("Warning! Se perdieron datos.")
+        print(seq_test.head())
+
 
     return Train_lan, Test_lan, seq_test
 

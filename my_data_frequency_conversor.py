@@ -93,3 +93,15 @@ def convert_to_nixtla(df):
     res['unique_id'] = 'Value'
     #res = df.reset_index(drop=True) 
     return res
+
+def convert_to_moirai(df):
+    '''
+    Converts the data to the format required by Moirai.
+    '''
+    # Asegúrate de que el índice sea datetime
+    df.index = pd.to_datetime(df.index)
+
+    # Filtrar solo las filas con año > 2024
+    df2 = df[df.index.year > 2020]
+
+    return df2

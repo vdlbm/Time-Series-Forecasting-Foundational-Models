@@ -80,11 +80,11 @@ def describe_change(t1, t2):
     t11 = t1.item()  # Convierte el valor a un tipo primitivo
     t22 = t2.item()  # Convierte el valor a un tipo primitivo
     if t22 > t11:
-        return f"from {t1} increasing to {t2}, "
+        return f"from {t11} increasing to {t22}, "
     elif t22 < t11:
-        return f"from {t1} decreasing to {t2}, "
+        return f"from {t11} decreasing to {t22}, "
     else:
-        return f"it remains flat from {t2} to {t1}, "
+        return f"it remains flat from {t11} to {t22}, "
 
 # Función para recuperar una secuencia a partir de una descripción en lenguaje natural
 def recover_lan2seq(input_string):

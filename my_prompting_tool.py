@@ -75,6 +75,7 @@ def paraphrase_seq2lan(seq, desp):
 
     return lan
 
+
 # Función para describir el cambio entre dos valores 
 def describe_change(t1, t2):
     t11 = t1.item()  # Convierte el valor a un tipo primitivo
@@ -101,10 +102,12 @@ def recover_lan2seq(input_string):
     filtered_numbers = [float_numbers[i] for i in range(len(float_numbers)) if i % 2 == 0]
     # Añade el último número
     filtered_numbers.append(float_numbers[-1])
-    # Convierte la lista en una Serie de pandas
-    result_series = pd.Series(filtered_numbers)
+    # Convierte la lista en un DataFrame de pandas
+    result_series = pd.DataFrame(filtered_numbers)
 
     return result_series
+
+
 
 # Función similar a recover_lan2seq pero específica para LLM
 def recover_lan2seq_llm(input_string):
@@ -200,7 +203,7 @@ def paraphrasing_predict_llm(desp, train_lan, steps, model_name):
              "The sequence is represented by decimal strings separated by commas. " \
              "Please continue the following sequence without producing any additional text. " \
              "Do not say anything like 'the next terms in the sequence are', just return the numbers."
-    prompt_add = (f"Predict the next {steps} steps, where each step follows the format (starting from 1.0 and increasing to 2.0) or (starting from 2.0 and decreasing to 0.5)."\
+    prompt_add = (f"Predict the next {steps} steps, where each step follows the format (from 1.0 increasing to 2.0) or (from 2.0 decreasing to 0.5)."\
                   " The final output should precisely follow the specified number of steps. Provide a sequence:\n")
 
     content_train = prompt + desp + prompt_add + train_lan  # Prepara el contenido para la predicción

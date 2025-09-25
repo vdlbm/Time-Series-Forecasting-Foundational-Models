@@ -49,16 +49,16 @@ hyper_gpt4 = f"Set hyperparameters to: alpha={gpt4_hypers['alpha']}, " \
 def paraphrase_initial(data_name):
     
     if data_name == 'ETH_MONTHS':
-        desp = "This is a monthly time series dataset describing the price of Ethereum (ETH) in US dollars (USD). " \
-               "Each value represents the average price of Ethereum in USD for that month. "
+        desp = "This is a monthly time series dataset describing the price of Ethereum (ETH) in US dollars (USD), " \
+               "each value represents the average price of Ethereum in USD for that month. "
     elif data_name == 'ETH_DAYS':
-        desp = "This is a daily time series dataset describing the price of Ethereum (ETH) in US dollars (USD). " \
-               "Each value represents the average price of Ethereum in USD for that day. "
+        desp = "This is a daily time series dataset describing the price of Ethereum (ETH) in US dollars (USD), " \
+               "each value represents the average price of Ethereum in USD for that day. "
     elif data_name == 'ETH_HOURS':
-        desp = "This is an hourly time series dataset describing the price of Ethereum (ETH) in US dollars (USD). " \
-               "Each value represents the average price of Ethereum in USD for that hour. "
+        desp = "This is an hourly time series dataset describing the price of Ethereum (ETH) in US dollars (USD), " \
+               "each value represents the average price of Ethereum in USD for that hour. "
     else:
-        desp = "Description not available for this dataset."
+        desp = "Description not available for this dataset. "
 
     return desp
 
@@ -78,14 +78,24 @@ def paraphrase_seq2lan(seq, desp):
 
 # Función para describir el cambio entre dos valores 
 def describe_change(t1, t2):
-    t11 = t1.item()  # Convierte el valor a un tipo primitivo
-    t22 = t2.item()  # Convierte el valor a un tipo primitivo
+    try:
+        t11 = t1.item()
+        t22 = t2.item()
+    except Exception as e:
+        print("Error en describe_change:", t1, t2, e)
+        return ""  # devuelve vacío para no romper todo
+    
+    if pd.isna(t11) or pd.isna(t22):
+        print("NaN detectado en:", t1, t2)
+        return ""  # evita generar frase
+    
     if t22 > t11:
         return f"from {t11} increasing to {t22}, "
     elif t22 < t11:
         return f"from {t11} decreasing to {t22}, "
     else:
         return f"it remains flat from {t11} to {t22}, "
+
 
 # Función para recuperar una secuencia a partir de una descripción en lenguaje natural
 def recover_lan2seq(input_string):
@@ -94,16 +104,16 @@ def recover_lan2seq(input_string):
     cleaned_string = input_string[dot_index + 1:].strip() if dot_index != -1 else input_string.strip()
 
     # Paso 2: Extrae los números de la cadena
-    numbers = re.findall(r'(\d+\.\d+)', cleaned_string)
+    numbers = re.findall(r'-?\d+(?:\.\d+)?', cleaned_string)
     # Convierte los números a tipo float
     float_numbers = [float(num) for num in numbers]
 
     # Paso 3: Elimina los números duplicados
-    filtered_numbers = [float_numbers[i] for i in range(len(float_numbers)) if i % 2 == 0]
-    # Añade el último número
-    filtered_numbers.append(float_numbers[-1])
+    recovered = [float_numbers[0]]
+    for i in range(1, len(float_numbers), 2):  # tomar cada "segundo" del par
+        recovered.append(float_numbers[i])
     # Convierte la lista en un DataFrame de pandas
-    result_series = pd.DataFrame(filtered_numbers)
+    result_series = pd.DataFrame(recovered)
 
     return result_series
 

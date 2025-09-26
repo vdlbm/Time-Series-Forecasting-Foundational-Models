@@ -4,11 +4,6 @@ import pandas as pd
 
 import re
 
-#from data1.serialize import SerializerSettings
-
-# Configuración de la API de OpenAI
-openai.api_key = ''  # Clave de API de OpenAI (debe ser proporcionada)
-openai.api_base = os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1")  # URL base de la API
 
 # Selección del modelo a utilizar
 # model_select = 'gpt-4-1106-preview'  # Opción alternativa
@@ -118,23 +113,6 @@ def recover_lan2seq(input_string):
     return result_series
 
 
-
-# Función similar a recover_lan2seq pero específica para LLM
-def recover_lan2seq_llm(input_string):
-    # Extrae los números de la cadena
-    numbers = re.findall(r'(\d+\.\d+)', input_string)
-    # Convierte los números a tipo float
-    float_numbers = [float(num) for num in numbers]
-
-    # Elimina los números duplicados
-    filtered_numbers = [float_numbers[i] for i in range(len(float_numbers)) if i % 2 == 0]
-    # Añade el último número
-    filtered_numbers.append(float_numbers[-1])
-    # Convierte la lista en una Serie de pandas
-    result_series = pd.Series(filtered_numbers)
-
-    return result_series
-
 # Función para procesar un conjunto de datos y convertirlo en lenguaje natural
 def paraphrase_nlp(dataset_name, train, test):
     desp = paraphrase_initial(dataset_name)  # Obtiene la descripción inicial
@@ -192,7 +170,7 @@ def paraphrase_llm(datasets_list):
         )
         Test_lan = response.choices[0].message.content  # Obtiene la respuesta del modelo
         print("Test_lan:", Test_lan)
-        seq_test = recover_lan2seq_llm(Test_lan)  # Recupera la secuencia de prueba
+        seq_test = recover_lan2seq(Test_lan)  # Recupera la secuencia de prueba
         if test.shape != seq_test.shape:
             print("Error in the process!")
             print("Shape of seq_test:", seq_test.shape)
@@ -227,7 +205,7 @@ def paraphrasing_predict_llm(desp, train_lan, steps, model_name):
         ]
     )
     Test_lan = response.choices[0].message.content  # Obtiene la respuesta del modelo
-    seq_test = recover_lan2seq_llm(Test_lan)  # Recupera la secuencia predicha
+    seq_test = recover_lan2seq(Test_lan)  # Recupera la secuencia predicha
 
     return seq_test
 '''

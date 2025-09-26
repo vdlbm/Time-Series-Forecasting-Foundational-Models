@@ -1,7 +1,4 @@
-import numpy as np
-import pandas as pd 
-
-
+# my_models.py
 class Model(object):
     def __init__(self, name, mse, mae, mape):
         self.name = name
@@ -9,17 +6,5 @@ class Model(object):
         self.mae = mae
         self.mape = mape
 
-    def getMSE(self):
-        return self.mse
-    def getMAE(self):
-        return self.mae
-    def getMAPE(self):
-        return self.mape
-    
-    def setMSE(self, mse):
-        self.mse = mse
-    def setMAE(self, mae):
-        self.mae = mae
-    def setMAPE(self, mape):
-        self.mape = mape
-    
+    def __str__(self):
+        return f"Model: {self.name}. Metrics--> MSE: {self.mse}, MAE: {self.mae}, MAPE: {self.mape}"

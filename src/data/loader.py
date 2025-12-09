@@ -73,7 +73,7 @@ class TimeSeriesLoader:
             raise ValueError(f"Unknown aggregation method: {agg_method}")
 
         # Forward fill is standard for financial time series to maintain state
-        df_res = df_res.asfreq(freq, method='ffill')
+        df_res = df_res.asfreq(freq, method='ffill') # if there is no value, it takes the one before
         
         return df_res.reset_index()
 

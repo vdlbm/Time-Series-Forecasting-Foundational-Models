@@ -1,0 +1,26 @@
+# --- CORE & DATA ---
+pandas>=2.0.0
+numpy>=1.24.0
+pyyaml>=6.0
+python-dotenv>=1.0.0      # Para leer el archivo .env (API Keys)
+scikit-learn>=1.3.0       # Para métricas adicionales si fueran necesarias
+
+# --- CLASSICAL MODELS (StatsForecast) ---
+statsforecast>=1.6.0      # Incluye ARIMA, Holt, ETS optimizados
+numba>=0.57.0             # Acelerador matemático para StatsForecast
+
+# --- LLM LOCAL & GPU (Llama-3) ---
+torch>=2.1.0              # PyTorch (Motor de Deep Learning)
+transformers>=4.36.0      # HuggingFace (Para cargar Llama-3 y Chronos)
+accelerate>=0.25.0        # Para gestionar la carga del modelo en CPU/GPU
+bitsandbytes>=0.41.0      # CRÍTICO: Para la cuantización a 4-bits
+scipy>=1.10.0             # Necesario para operaciones de torch
+
+# --- FOUNDATION MODELS (APIs & DL) ---
+nixtla>=0.4.0             # Cliente para TimeGPT
+gluonts>=0.14.0           # Librería base para Moirai/Chronos
+# uni2ts                  # Moirai (Suele requerir install desde git, ver abajo)
+
+# --- VISUALIZATION (Opcional para notebooks) ---
+matplotlib>=3.7.0
+plotly>=5.15.0

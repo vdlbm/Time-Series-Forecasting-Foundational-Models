@@ -49,7 +49,7 @@ models:
   moirai:
     type: "ts_llms"
     model_name: "Moirai"
-    size: "small"        # 'small' es suficiente para probar, 'base' si tienes buena GPU
+    size: "small"        # 'small' es suficiente para probar, 'base' si buena GPU
     patch_size: "auto"
     context_length: 365 
 

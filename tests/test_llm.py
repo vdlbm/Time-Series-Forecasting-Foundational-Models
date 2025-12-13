@@ -15,7 +15,7 @@ def test_llama_integration(sample_data, gpu_available):
     horizon = 3
     config = {
         'type': 'llm_local',
-        'model_id': 'meta-llama/Meta-Llama-3.1-8B-Instruct', # Ojo: Asegúrate que tienes acceso
+        'model_id': 'meta-llama/Llama-3.2-3B-Instruct', # Ojo: Asegúrate que tienes acceso
         'quantization_4bit': True,
         'context_window_size': 20, # Pequeño para test rápido
         'max_new_tokens': 10

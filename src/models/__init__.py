@@ -3,7 +3,7 @@ from .factory import ModelFactory
 
 # Opcional: Si quisieras importar wrappers directamente para pruebas
 from .classical import ClassicalWrapper
-from .llm_local import LocalLLMWrapper
+from .llm import LocalLLMWrapper
 from .foundation import FoundationWrapper
 
 __all__ = ['BaseForecaster', 'ModelFactory', 'ClassicalWrapper', 'LocalLLMWrapper', 'FoundationWrapper']

@@ -1,15 +1,16 @@
 import pandas as pd
 from typing import Dict, Any
 from statsforecast import StatsForecast
-# UPDATED IMPORTS: We removed SimpleExpSmoothing and Holt, and added ETS
-from statsforecast.models import AutoARIMA, HoltWinters, ETS
+# CORRECCIÓN: Usamos AutoARIMA y AutoETS (que engloba Holt, SES, etc.)
+from statsforecast.models import AutoARIMA, AutoETS
 
 from .base import BaseForecaster
 
 class ClassicalWrapper(BaseForecaster):
     """
     Wrapper for 'StatsForecast' library models.
-    Handles ARIMA, and uses ETS to simulate SES, Holt, and Holt-Winters.
+    Handles ARIMA using AutoARIMA.
+    Handles SES, Holt, and Holt-Winters using AutoETS configurations.
     """
     
     def __init__(self, config: Dict[str, Any]):
@@ -19,25 +20,25 @@ class ClassicalWrapper(BaseForecaster):
         model_name = config.get('model_name', 'AutoARIMA')
         season_length = config.get('season_length', 1)
         
-        # 2. Map String names to Actual Classes
-        # In newer statsforecast versions, we use ETS (Error, Trend, Seasonality) 
-        # to implement SES and Holt.
+        # 2. Map String names to Actual Classes using AutoETS
+        # AutoETS model syntax: Error-Trend-Seasonality (e.g., 'ANN')
+        # A=Additive, M=Multiplicative, N=None, Z=Auto
         
         if model_name == 'AutoARIMA':
             selected_model = AutoARIMA(season_length=season_length)
         
         elif model_name == 'SimpleExpSmoothing':
-            # ETS with 'ANN' = Additive Error, No Trend, No Seasonality (Equivalent to SES)
-            selected_model = ETS(model='ANN', season_length=1)
+            # SES = Error(Add), Trend(None), Season(None)
+            selected_model = AutoETS(model='ANN', season_length=1)
             
         elif model_name == 'Holt':
-            # ETS with 'AAN' = Additive Error, Additive Trend, No Seasonality (Equivalent to Holt)
-            selected_model = ETS(model='AAN', season_length=1)
+            # Holt = Error(Add), Trend(Add), Season(None)
+            selected_model = AutoETS(model='AAN', season_length=1)
             
         elif model_name == 'HoltWinters':
-            # We can use the specific HoltWinters class or ETS('AAA')
-            # Using the specific class as it's still available and robust
-            selected_model = HoltWinters(season_length=season_length)
+            # HoltWinters = Error(Add), Trend(Add), Season(Add)
+            # We force seasonality here
+            selected_model = AutoETS(model='AAA', season_length=season_length)
             
         else:
             raise ValueError(f"Classical model '{model_name}' not supported.")
@@ -50,7 +51,6 @@ class ClassicalWrapper(BaseForecaster):
         )
         
         self.last_train_df = None
-        self.model_col_name = str(selected_model) 
 
     def fit(self, df_train: pd.DataFrame) -> None:
         """

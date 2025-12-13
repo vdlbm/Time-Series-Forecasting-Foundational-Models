@@ -24,3 +24,6 @@ gluonts>=0.14.0           # Librería base para Moirai/Chronos
 # --- VISUALIZATION (Opcional para notebooks) ---
 matplotlib>=3.7.0
 plotly>=5.15.0
+
+# --- TESTING ---
+pytest>=7.4.0

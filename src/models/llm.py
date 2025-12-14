@@ -18,31 +18,46 @@ class LocalLLMWrapper(BaseForecaster):
         self.context_size = config.get('context_window_size', 90)
         self.max_tokens = config.get('max_new_tokens', 20)
         self.df_history: Optional[pd.DataFrame] = None
+        self.quantization_4bit = config.get('quantization_4bit', True)
+
+        # Determine device type: GPU (CUDA) or CPU
+        self.device_type = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"   >>> Iniciando LLM en: {self.device_type}")
         
         # 1. QUANTIZATION CONFIGURATION (Hardware Optimization)
         # We use NF4 (Normal Float 4-bit) which offers the best accuracy/compression ratio.
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.float16,
-            bnb_4bit_use_double_quant=True,
-        )
+        bnb_config = None
+        if self.quantization_4bit and self.device_type == "cuda":
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.float16,
+                bnb_4bit_use_double_quant=True
+            )
 
-        print(f"Loading LLM: {self.model_id} [4-bit Quantization Active]...")
+        print(f"Loading LLM: {self.model_id}...")
         
         # 2. TOKENIZER LOADING
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_id)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_id, trust_remote_code=True)
         # Llama 3 requires explicit padding token definition for batch generation
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+
 
         # 3. MODEL LOADING
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model_id,
             quantization_config=bnb_config if config.get('quantization_4bit', True) else None,
-            device_map="auto",  # Automatically distributes layers to GPU/CPU
+            device_map="auto",
+            low_cpu_mem_usage=False,
             trust_remote_code=True
         )
+
+        # Ignores the training mode, we only do inference. 2 consequences:
+        # Stops dropout layers and neurons from being active
+        # Stops batchnorm layers from updating running stats
+        #self.model.eval()
+
         print("Model loaded successfully on GPU/CPU.")
 
     def fit(self, df_train: pd.DataFrame) -> None:
@@ -52,6 +67,13 @@ class LocalLLMWrapper(BaseForecaster):
         We simply store the recent history to build the prompt later.
         """
         self.df_history = df_train.copy()
+
+        # Ensure 'ds' is datetime and set as index
+        if 'ds' in self.df_history.columns:
+            # Aseguramos que sea tipo fecha
+            self.df_history['ds'] = pd.to_datetime(self.df_history['ds'])
+            # La movemos al índice
+            self.df_history.set_index('ds', inplace=True)
 
     def predict(self, horizon: int) -> pd.DataFrame:
         """

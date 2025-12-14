@@ -14,15 +14,13 @@ statsforecast>=1.6.0
 numba>=0.57.0
 
 # --- 3. LLM LOCAL & GPU (Llama-3) ---
+bitsandbytes>=0.43.2
 torch>=2.1.0
 torchvision>=0.16.0
 torchaudio>=2.1.0
 transformers>=4.36.0
 accelerate>=0.25.0
 scipy>=1.10.0
-
-# PARCHE DE WINDOWS: Sustituimos la librería oficial por la compatible con Windows
-https://github.com/jllllll/bitsandbytes-windows-webui/releases/download/wheels/bitsandbytes-0.41.1-py3-none-win_amd64.whl
 
 # --- 4. FOUNDATION MODELS (APIs & DL) ---
 nixtla>=0.4.0

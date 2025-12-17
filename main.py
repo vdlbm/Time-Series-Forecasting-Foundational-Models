@@ -86,9 +86,14 @@ def main():
                 # Extraemos los arrays numpy para comparar
                 y_true = test_df['y'].values
                 y_pred = forecast_df['y_pred'].values
+                last_known_y = train_df['y'].iloc[-1]  # Último valor conocido antes del test
                 
                 # Calculamos métricas (RMSE, ROI, Directional Accuracy)
-                metrics = PerformanceEvaluator.calculate_metrics(y_true, y_pred)
+                metrics = PerformanceEvaluator.calculate_metrics(
+                    y_true, 
+                    y_pred, 
+                    previous_y=last_known_y
+                )
                 
                 # E. LOGGING (Guardar evidencia)
                 log_entry = {

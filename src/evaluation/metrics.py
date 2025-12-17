@@ -16,7 +16,7 @@ class PerformanceEvaluator:
     """
     
     @staticmethod
-    def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
+    def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray, previous_y: float = None) -> Dict[str, float]:
         """
         Calculates a comprehensive suite of metrics.
         
@@ -65,15 +65,23 @@ class PerformanceEvaluator:
         
         # For robustness in this static method, we calculate DA only if len > 1
         # otherwise it's impossible to know the trend.
+        # Caso 1: Tenemos vector de predicción largo (Horizon > 1)
         if len(y_true) > 1:
             diff_true = np.diff(y_true)
             diff_pred = np.diff(y_pred)
-            # Check if signs match (True if both positive or both negative)
             correct_directions = np.sign(diff_true) == np.sign(diff_pred)
             dir_acc = np.mean(correct_directions) * 100
-        else:
-            dir_acc = 0.0 # Not applicable for single-point evaluation without context
-
+            
+        # Caso 2: Predicción de 1 solo paso (necesitamos el histórico anterior)
+        elif len(y_true) == 1 and previous_y is not None:
+            true_move = y_true[0] - previous_y
+            pred_move = y_pred[0] - previous_y
+            
+            # Si el signo del movimiento es igual (ambos suben o ambos bajan)
+            if np.sign(true_move) == np.sign(pred_move):
+                dir_acc = 100.0
+            else:
+                dir_acc = 0.0
         return {
             "MSE": float(mse),
             "RMSE": float(rmse),

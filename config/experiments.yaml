@@ -60,14 +60,14 @@ models:
 
   # --- GRUPO 3: LARGE LANGUAGE MODEL ---
   
-  #llama3_local:
-  #  type: "llm_local"
-  #  model_id: "meta-llama/Meta-Llama-3.1-8B-Instruct"
-  #  quantization_4bit: true # Vital para correr en local
+  llama3_local:
+    type: "llm_local"
+    model_id: "meta-llama/Meta-Llama-3.1-8B-Instruct"
+    quantization_4bit: true # Vital para correr en local
     
     # Contexto para el Prompt: 
     # 365 días de texto es mucho token. 90 días (un trimestre) suele ser 
     # el equilibrio perfecto entre contexto y velocidad/precisión para un LLM.
     # Si ponemos 365, el prompt será gigante y Llama podría "olvidar" el principio.
-  #  context_window_size: 90 
-  #  max_new_tokens: 20   # Solo necesitamos 1 número.
+    context_window_size: 90 
+    max_new_tokens: 20   # Solo necesitamos 1 número.

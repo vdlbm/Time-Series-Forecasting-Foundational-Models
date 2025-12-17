@@ -14,7 +14,7 @@ def main():
     print("\n--- INICIANDO EL EXPERIMENTO TFG ---")
     print("Leyendo configuración...")
     
-    with open("config/experiments.yaml", "r") as f:
+    with open("config/experiments.yaml", "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
         
     global_cfg = cfg['global']
@@ -65,7 +65,8 @@ def main():
             for i, (train_df, test_df) in enumerate(splitter.split(df)):
                 
                 window_id = i + 1
-                test_date = test_df.index[0] # La fecha que estamos intentando predecir
+                #test_date = test_df.index[0] # La fecha que estamos intentando predecir
+                test_date = pd.to_datetime(test_df['ds'].iloc[0])
                 
                 print(f"    [Ventana {window_id}/{global_cfg['n_windows']}] Prediciendo para: {test_date.date()}...", end="\r")
                 

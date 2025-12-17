@@ -1,4 +1,4 @@
-# --- 0. CONFIGURACIÓN DE DESCARGA (CRÍTICO PARA WINDOWS/GPU) ---
+# --- 0. CONFIGURACIÓN DE DESCARGA ---
 # Esta línea le dice a pip que busque la versión con CUDA 12.1
 --extra-index-url https://download.pytorch.org/whl/cu121
 

@@ -125,7 +125,10 @@ class FoundationWrapper(BaseForecaster):
         # --- MOIRAI INFERENCE ---
         elif self.model_name == 'Moirai':
             # Convertir a GluonTS Dataset
-            ds = PandasDataset(dict(self.last_train_df.set_index('ds')), freq=self.freq)
+            # Creamos una copia y forzamos la frecuencia en el índice
+            df_moirai = self.last_train_df.set_index('ds').copy()
+            df_moirai = df_moirai.asfreq(self.freq)
+            ds = PandasDataset(dict(df_moirai), freq=self.freq)
             
             # Generar predicción
             forecast_it = self.predictor.predict(ds)

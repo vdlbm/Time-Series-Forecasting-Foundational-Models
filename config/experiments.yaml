@@ -3,17 +3,17 @@
 global:
   project_name: "Time Series Forecasting with LLMs"
   # Data Source
-  data_path: "data/ETH-USD.csv"
+  data_path: "data/ETHUSD-Monthly.csv"
   time_col: "DateTime"
   target_col: "Open"
   
   # Preprocessing
-  frequency: "D"         # 'D' (Daily) es el estándar. Cambiar a 'M' para pruebas rápidas.
-  agg_method: "last"     
+  frequency: "M"         # 'D' (Daily) es el estándar. Cambiar a 'M' para pruebas rápidas.
+  agg_method: "last"     # 'last', 'sum', 'mean', etc.
   
-  input_window_size: 365 
+  input_window_size: 30 
   test_horizon: 1        
-  n_windows: 365
+  n_windows: 10
 
   random_seed: 42
 
@@ -41,33 +41,33 @@ models:
 
   # --- GRUPO 2: DEEP LEARNING / FUNDACIONALES ---
   
-  timegpt:
-    type: "ts_llms"
-    model_name: "TimeGPT"
-    finetune_steps: 0    # Zero-shot
+  #timegpt:
+  #  type: "foundation"
+  #  model_name: "TimeGPT"
+  #  finetune_steps: 0    # Zero-shot
 
   moirai:
-    type: "ts_llms"
+    type: "foundation"
     model_name: "Moirai"
     size: "small"        # 'small' es suficiente para probar, 'base' si buena GPU
     patch_size: "auto"
     context_length: 365 
 
   chronos: # Modelo de Amazon basado en T5 (Tokenización de series)
-    type: "ts_llms"
+    type: "foundation"
     model_name: "Chronos"
     model_path: "amazon/chronos-t5-small" 
 
   # --- GRUPO 3: LARGE LANGUAGE MODEL ---
   
-  llama3_local:
-    type: "llm_local"
-    model_id: "meta-llama/Meta-Llama-3.1-8B-Instruct"
-    quantization_4bit: true # Vital para correr en local
+  #llama3_local:
+  #  type: "llm_local"
+  #  model_id: "meta-llama/Meta-Llama-3.1-8B-Instruct"
+  #  quantization_4bit: true # Vital para correr en local
     
     # Contexto para el Prompt: 
     # 365 días de texto es mucho token. 90 días (un trimestre) suele ser 
     # el equilibrio perfecto entre contexto y velocidad/precisión para un LLM.
     # Si ponemos 365, el prompt será gigante y Llama podría "olvidar" el principio.
-    context_window_size: 90 
-    max_new_tokens: 20   # Solo necesitamos 1 número.
+  #  context_window_size: 90 
+  #  max_new_tokens: 20   # Solo necesitamos 1 número.

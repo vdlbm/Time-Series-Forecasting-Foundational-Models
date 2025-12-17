@@ -2,6 +2,8 @@ import yaml
 import pandas as pd
 import time
 from typing import List, Dict
+import torch
+import gc
 
 # Importamos nuestros módulos (La maquinaria que hemos construido)
 from src.data.loader import TimeSeriesLoader
@@ -109,12 +111,23 @@ def main():
                 results_log.append(log_entry)
             
             print(f"\n    Modelo {model_key} completado con éxito.")
+
+            # Borramos la instancia del modelo para liberar RAM
+            del model 
+            # Forzamos al Garbage Collector de Python
+            gc.collect()
+            # Vaciamos la caché de la GPU (CRUCIAL)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            print("    Memoria GPU liberada.")
                 
         except Exception as e:
             # MANEJO DE ERRORES ROBUSTO
             # Si un modelo falla (ej. TimeGPT sin internet), lo registramos y seguimos con el siguiente.
             # No queremos que un error tire 10 horas de experimento.
             print(f"\n  ERROR CRÍTICO en {model_key}: {str(e)}")
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             continue
 
     # 6. GUARDADO DE RESULTADOS FINAL

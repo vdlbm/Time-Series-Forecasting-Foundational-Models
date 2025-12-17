@@ -14,7 +14,7 @@ class LocalLLMWrapper(BaseForecaster):
     
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.model_id = config.get('model_id', "meta-llama/Meta-Llama-3.1-8B-Instruct")
+        self.model_id = config.get('model_id', "meta-llama/Llama-3.2-3B-Instruct")
         self.context_size = config.get('context_window_size', 90)
         self.max_tokens = config.get('max_new_tokens', 20)
         self.df_history: Optional[pd.DataFrame] = None

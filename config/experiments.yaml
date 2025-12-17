@@ -62,7 +62,7 @@ models:
   
   llama3_local:
     type: "llm_local"
-    model_id: "meta-llama/Meta-Llama-3.1-8B-Instruct"
+    model_id: "meta-llama/Llama-3.2-3B-Instruct"
     quantization_4bit: true # Vital para correr en local
     
     # Contexto para el Prompt: 

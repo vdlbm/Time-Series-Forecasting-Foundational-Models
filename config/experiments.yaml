@@ -1,46 +1,91 @@
 # config/experiments.yaml
 
 global:
-  project_name: "Time Series Forecasting with LLMs"
-  # Data Source
-  data_path: "data/ETHUSD-Monthly.csv"
-  time_col: "DateTime"
-  target_col: "Open"
+  project_name: "TFG_Comparativa_Total_Finanzas"
   
-  # Preprocessing
-  frequency: "M"         # 'D' (Daily) es el estándar. Cambiar a 'M' para pruebas rápidas.
-  agg_method: "last"     # 'last', 'sum', 'mean', etc.
+  # --- LISTA DE DATASETS Y SUS PROPIEDADES ---
+  # season_length se define aquí porque depende de la frecuencia
+  datasets:
+    # 1. Renta Variable (S&P 500)
+    - name: "SP500_Daily"
+      path: "data/SP500_Daily.csv"
+      frequency: "D"
+      season_length: 5       # Ciclo semanal bursátil (5 días hábiles)
+      target_col: "Close"
+    
+    - name: "SP500_Monthly"
+      path: "data/SP500_Monthly.csv"
+      frequency: "M"
+      season_length: 12      # Ciclo anual
+      target_col: "Close"
+
+    # 2. Divisas (EUR/USD)
+    - name: "EURUSD_Daily"
+      path: "data/EURUSD_Daily.csv"
+      frequency: "D"
+      season_length: 5       # Mercado Forex (aunque opera 24/5)
+      target_col: "Close"
+      
+    - name: "EURUSD_Monthly"
+      path: "data/EURUSD_Monthly.csv"
+      frequency: "M"
+      season_length: 12
+      target_col: "Close"
+      
+    # 3. Criptoactivos (Bitcoin) - Opera 24/7
+    - name: "BTC_Daily"
+      path: "data/BTC_Daily.csv"
+      frequency: "D"
+      season_length: 7       # Cripto no cierra fines de semana
+      target_col: "Close"
+      
+    - name: "BTC_Monthly"
+      path: "data/BTC_Monthly.csv"
+      frequency: "M"
+      season_length: 12
+      target_col: "Close"
+      
+    # 4. Macroeconomía (Inflación)
+    - name: "US_CPI_Monthly"
+      path: "data/US_CPI_Monthly.csv"
+      frequency: "M"
+      season_length: 12
+      target_col: "Close"
   
-  input_window_size: 30 
+  time_col: "Date"
+  
+  # Parámetros de Backtesting
+  input_window_size: 60 
   test_horizon: 1        
-  n_windows: 10
-
+  n_windows: 12 
   random_seed: 42
-
 
 models:
   # --- GRUPO 1: ESTADÍSTICOS CLÁSICOS (StatsForecast) ---
+  # Nota: season_length se inyectará dinámicamente desde el código main.py
   
   arima:
     type: "classical"
     model_name: "AutoARIMA"
-    season_length: 7     
+    # season_length: (Dinámico)
 
   ses: 
     type: "classical"
     model_name: "SimpleExpSmoothing"
-    
+    # No usa estacionalidad
+
   holt:
     type: "classical"
     model_name: "Holt" 
+    # No usa estacionalidad
     
   holt_winters:
     type: "classical"
     model_name: "HoltWinters"
-    season_length: 7
+    # season_length: (Dinámico)
 
   # --- GRUPO 2: DEEP LEARNING / FUNDACIONALES ---
-  
+
   #timegpt:
   #  type: "foundation"
   #  model_name: "TimeGPT"
@@ -49,11 +94,11 @@ models:
   moirai:
     type: "foundation"
     model_name: "Moirai"
-    size: "small"        # 'small' es suficiente para probar, 'base' si buena GPU
+    size: "small"
     patch_size: "auto"
-    context_length: 365 
+    context_length: 60  # Ajustado para coincidir con input_window_size
 
-  chronos: # Modelo de Amazon basado en T5 (Tokenización de series)
+  chronos:
     type: "foundation"
     model_name: "Chronos"
     model_path: "amazon/chronos-t5-small" 
@@ -63,11 +108,6 @@ models:
   llama3_local:
     type: "llm_local"
     model_id: "meta-llama/Llama-3.2-3B-Instruct"
-    quantization_4bit: true # Vital para correr en local
-    
-    # Contexto para el Prompt: 
-    # 365 días de texto es mucho token. 90 días (un trimestre) suele ser 
-    # el equilibrio perfecto entre contexto y velocidad/precisión para un LLM.
-    # Si ponemos 365, el prompt será gigante y Llama podría "olvidar" el principio.
-    context_window_size: 90 
-    max_new_tokens: 20   # Solo necesitamos 1 número.
+    quantization_4bit: true
+    context_window_size: 90 # 3 trimestres 
+    max_new_tokens: 10 # Solo queremos un paso adelante

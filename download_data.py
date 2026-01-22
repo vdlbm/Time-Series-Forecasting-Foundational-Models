@@ -94,4 +94,4 @@ if __name__ == "__main__":
     setup_dir()
     download_yahoo_assets()
     download_macro_data()
-    print("\n✅ ¡PROCESO COMPLETO! Ya puedes configurar tu experiments.yaml")
+    print("\n✅ ¡PROCESO COMPLETO! Datos descargados en la carpeta 'data/'.")

@@ -1,33 +1,29 @@
-# --- 0. CONFIGURACIÓN DE DESCARGA ---
-# Esta línea le dice a pip que busque la versión con CUDA 12.1
---extra-index-url https://download.pytorch.org/whl/cu121
-
 # --- 1. CORE & DATA ---
 pandas>=2.0.0
 numpy>=1.24.0
 pyyaml>=6.0
 python-dotenv>=1.0.0
 scikit-learn>=1.3.0
+scipy>=1.10.0
 
 # --- 2. CLASSICAL MODELS (StatsForecast) ---
 statsforecast>=1.6.0
 numba>=0.57.0
 
-# --- 3. LLM LOCAL & GPU (Llama-3) ---
-bitsandbytes>=0.43.2
+# --- 3. LLM LOCAL (Optimizado para Mac) ---
+# Sustituye a bitsandbytes. Permite usar GGUF con aceleración Metal
+llama-cpp-python>=0.2.20
+
+# --- 4. FOUNDATION MODELS SUPPORT (Chronos/Moirai) ---
 torch>=2.1.0
 torchvision>=0.16.0
 torchaudio>=2.1.0
 transformers>=4.36.0
 accelerate>=0.25.0
-scipy>=1.10.0
-
-# --- 4. FOUNDATION MODELS (APIs & DL) ---
-nixtla>=0.4.0
 gluonts>=0.14.0
+nixtla>=0.4.0
 
 # --- 5. LIBRERÍAS GIT (Instalación directa) ---
-# Al ponerlas aquí, se instalan solas sin comandos extra
 git+https://github.com/amazon-science/chronos-forecasting.git
 git+https://github.com/SalesforceAIResearch/uni2ts.git
 

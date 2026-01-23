@@ -35,8 +35,10 @@ class PerformanceEvaluator:
             # B. ROI (Retorno de Inversión Simple)
             # Estrategia: Si el modelo dice SUBE -> Compramos (Long). Si dice BAJA -> Vendemos (Short).
             # Retorno del activo = (Precio_Hoy - Precio_Ayer) / Precio_Ayer
-            asset_return = (y_true[0] - previous_y) / previous_y
-            
+            if previous_y == 0:
+                asset_return = 0.0 # Evitar división por cero
+            else:
+                asset_return = (y_true[0] - previous_y) / previous_y
             # Posición: 1 (Long) o -1 (Short)
             position = np.sign(pred_move) if pred_move != 0 else 0
             

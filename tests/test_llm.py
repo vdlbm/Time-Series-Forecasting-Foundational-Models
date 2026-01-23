@@ -1,51 +1,87 @@
 import pytest
 import pandas as pd
-import numpy as np
-from src.models.factory import ModelFactory
+import os
+from unittest.mock import MagicMock, patch
+from src.models.llm import LocalLLMWrapper
 
-# Marcamos como "slow" porque carga modelos pesados
-@pytest.mark.slow 
-def test_llama_integration(sample_data, gpu_available):
-    """
-    Prueba de integración completa para Llama-3.
-    """
-    if not gpu_available:
-        pytest.skip("Saltando test de Llama-3: No se detectó GPU CUDA.")
+# Configuración básica para los tests
+CONFIG = {
+    "model_path": "models/Meta-Llama-3.1-8B-Instruct-Q8_0.gguf",
+    "context_window_size": 100,
+    "max_new_tokens": 5
+}
 
-    horizon = 3
-    config = {
-        'type': 'llm_local',
-        'model_id': 'meta-llama/Llama-3.2-3B-Instruct', # Ojo: Asegúrate que tienes acceso
-        'quantization_4bit': True,
-        'context_window_size': 20, # Pequeño para test rápido
-        'max_new_tokens': 10
-    }
+class TestLocalLLM:
 
-    print("\n[TEST] Cargando Llama-3 (esto puede tardar)...")
-    model = ModelFactory.get_model(config)
-    
-    # Fit & Predict
-    model.fit(sample_data)
-    pred = model.predict(horizon=horizon)
-    
-    # Validaciones específicas de LLM
-    assert not pred['y_pred'].isnull().any(), "El LLM devolvió valores nulos (NaN)"
-    
-    # Validación de continuidad
-    # El primer valor predicho no debería ser astronómicamente diferente del último real
-    # (Esto detecta si el LLM alucina un número como 999999 cuando la serie va por 100)
-    last_val = sample_data['y'].iloc[-1]
-    first_pred = pred['y_pred'].iloc[0]
-    
-    # Aceptamos un cambio de hasta el 50% (muy laxo, pero evita locuras)
-    diff_pct = abs(first_pred - last_val) / last_val
-    assert diff_pct < 0.5, f"Alerta de Alucinación: Salto del {diff_pct*100}% (Real: {last_val} -> Pred: {first_pred})"
+    @patch('src.models.llm.Llama')
+    def test_llm_initialization_mock(self, mock_llama_class):
+        """
+        Prueba Unitaria: Verifica que el wrapper inicializa la clase Llama correctamente
+        sin cargar el modelo pesado en memoria.
+        """
+        # Configuramos el Mock
+        mock_instance = MagicMock()
+        mock_llama_class.return_value = mock_instance
+        
+        # Instanciamos nuestro wrapper
+        model = LocalLLMWrapper(CONFIG)
+        
+        # Verificamos que llamó a Llama con n_gpu_layers=-1 (Metal/GPU activado)
+        mock_llama_class.assert_called_once()
+        _, kwargs = mock_llama_class.call_args
+        assert kwargs['n_gpu_layers'] == -1
+        assert kwargs['model_path'] == CONFIG['model_path']
 
-def test_llm_fallback_mechanism(sample_data):
-    """
-    Simulamos que el LLM falla (devuelve basura) y verificamos 
-    que el mecanismo de seguridad (fallback) entra en acción.
-    """
-    # ... Aquí requeriría "mockear" la llamada a generate, 
-    # pero para simplificar probamos que la lógica post-proceso sea robusta.
-    pass
+    @patch('src.models.llm.Llama')
+    def test_predict_mock_output(self, mock_llama_class):
+        """
+        Prueba Unitaria: Verifica que el flujo de 'predict' procesa la respuesta.
+        """
+        # 1. Mockear la respuesta del LLM
+        mock_instance = MagicMock()
+        # Simulamos que Llama devuelve un diccionario estilo OpenAI
+        mock_instance.return_value = {
+            'choices': [{'text': ' 105.5, 106.2 '}]
+        }
+        mock_llama_class.return_value = mock_instance
+        
+        # 2. Preparar datos dummy
+        df_train = pd.DataFrame({
+            'ds': pd.date_range('2023-01-01', periods=20),
+            'y': range(20)
+        }).set_index('ds')
+        
+        # 3. Ejecutar predicción
+        model = LocalLLMWrapper(CONFIG)
+        model.fit(df_train)
+        prediction = model.predict(horizon=2)
+        
+        # 4. Validaciones
+        assert isinstance(prediction, pd.DataFrame)
+        assert len(prediction) == 2
+        assert 'y_pred' in prediction.columns
+        # Verificar que parseó los números del texto mockeado
+        assert prediction['y_pred'].iloc[0] == 105.5
+
+    @pytest.mark.skipif(not os.path.exists(CONFIG['model_path']), reason="Modelo GGUF no encontrado en local")
+    def test_real_model_loading(self):
+        """
+        Prueba de Integración: Intenta cargar el modelo REAL si existe el archivo.
+        Verifica que tu Mac es capaz de levantar el GGUF.
+        """
+        print("\n⚠️ Ejecutando test de carga REAL (esto puede tardar unos segundos)...")
+        
+        try:
+            model = LocalLLMWrapper(CONFIG)
+            assert model.model is not None
+            print("✅ Modelo cargado exitosamente en memoria.")
+        except Exception as e:
+            pytest.fail(f"Falló la carga del modelo real: {e}")
+
+    def test_predict_without_fit_raises_error(self):
+        """Verifica que lanza error si intentamos predecir sin entrenar (fit)."""
+        # Usamos patch para evitar cargar el modelo real aquí también
+        with patch('src.models.llm.Llama'):
+            model = LocalLLMWrapper(CONFIG)
+            with pytest.raises(ValueError, match="Model must be fit"):
+                model.predict(horizon=1)

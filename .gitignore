@@ -173,3 +173,9 @@ cython_debug/
 # Almacena las variables de entorno como las api keys
 .env
 
+# Ignorar modelos Llama
+*.gguf
+models/*.gguf
+
+# Virtual environments
+venv/

@@ -70,7 +70,7 @@ def test_timegpt_initialization():
         model = ModelFactory.get_model(config)
         # Verificamos que el cliente interno existe y tiene la key cargada
         assert model.client is not None
-        assert model.client.api_key is not None
+        assert model.client.validate_api_key()
     except Exception as e:
         pytest.fail(f"TimeGPT falló al inicializar: {e}")
 

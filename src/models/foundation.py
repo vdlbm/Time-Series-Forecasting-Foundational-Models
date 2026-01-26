@@ -1,9 +1,10 @@
 import pandas as pd
+import numpy as np
 import torch
 import os
 from typing import Dict, Any, Optional
 
-# Imports condicionales para evitar errores si no se instalan todas las librerías
+# Imports condicionales
 try:
     from nixtla import NixtlaClient
 except ImportError:
@@ -12,19 +13,17 @@ except ImportError:
 try:
     from uni2ts.model.moirai import MoiraiForecast, MoiraiModule
     from gluonts.dataset.pandas import PandasDataset
-    from gluonts.dataset.split import split
 except ImportError:
     MoiraiForecast = None
 
-# Para Chronos usamos la librería 'transformers' estándar que ya tienes
+# Para Chronos
 from transformers import AutoModelForSeq2SeqLM, AutoModelForCausalLM, AutoTokenizer, pipeline
 
 from .base import BaseForecaster
 
 class FoundationWrapper(BaseForecaster):
     """
-    Wrapper unificado para modelos fundacionales de Series Temporales
-    (TimeGPT, Moirai, Chronos).
+    Wrapper unificado para modelos fundacionales con corrección de escala.
     """
     
     def __init__(self, config: Dict[str, Any]):
@@ -33,30 +32,28 @@ class FoundationWrapper(BaseForecaster):
         self.freq = config.get('freq', 'D')
         self.last_train_df = None
         
+        # Variables para escalado manual (Moirai)
+        self.scaler_mean = 0.0
+        self.scaler_std = 1.0
+        
         # --- TIMEGPT SETUP ---
         if self.model_name == 'TimeGPT':
             if NixtlaClient is None:
-                raise ImportError("Please install 'nixtla' library.")
-            
+                raise ImportError("Please install 'nixtla'.")
             api_key = os.getenv("NIXTLA_API_KEY")
-            if not api_key:
-                raise ValueError("NIXTLA_API_KEY not found in environment variables.")
-            
             self.client = NixtlaClient(api_key=api_key)
-            print("TimeGPT Client Initialized.")
 
         # --- MOIRAI SETUP ---
         elif self.model_name == 'Moirai':
             if MoiraiForecast is None:
                 raise ImportError("Please install 'uni2ts' and 'gluonts'.")
             
-            size = config.get('size', 'small') # small, base, large
+            size = config.get('size', 'small')
             self.prediction_length = config.get('test_horizon', 1)
             self.context_length = config.get('context_length', 90)
             self.patch_size = config.get('patch_size', 'auto')
             self.batch_size = config.get('batch_size', 32)
             
-            # Cargar modelo Moirai desde HuggingFace
             print(f"Loading Moirai ({size})...")
             self.module = MoiraiModule.from_pretrained(f"Salesforce/moirai-1.0-R-{size}")
             self.predictor = MoiraiForecast(
@@ -73,45 +70,41 @@ class FoundationWrapper(BaseForecaster):
 
         # --- CHRONOS SETUP ---
         elif self.model_name == 'Chronos':
-            # Amazon Chronos usa la arquitectura T5 (Text-to-Text) pero con tokens numéricos
             model_path = config.get('model_path', "amazon/chronos-t5-small")
             print(f"Loading Chronos ({model_path})...")
-            
-            # Carga usando la pipeline de Chronos (requiere instalar la lib de amazon-chronos o usar transformers puro)
-            # Aquí usamos el enfoque puro de Transformers para máxima compatibilidad
-            # Nota: Chronos requiere una lógica específica de tokenización, para simplificar 
-            # asumiremos que el usuario ha instalado 'chronos-forecasting'
             try:
                 from chronos import ChronosPipeline
                 self.pipeline = ChronosPipeline.from_pretrained(
                     model_path,
                     device_map="auto",
-                    torch_dtype=torch.bfloat16,
+                    dtype=torch.bfloat16,
                 )
             except ImportError:
-                 raise ImportError("Please install 'chronos-forecasting' (pip install git+https://github.com/amazon-science/chronos-forecasting.git)")
-            
+                 raise ImportError("Install 'chronos-forecasting' library.")
             print("Chronos Loaded.")
-
         else:
             raise ValueError(f"Unknown Foundation Model: {self.model_name}")
 
     def fit(self, df_train: pd.DataFrame) -> None:
         """
-        Estos modelos son Zero-Shot, no entrenan.
-        Solo guardamos los datos para usarlos como contexto en predict().
+        Calcula estadísticas para escalado y guarda los datos.
         """
         self.last_train_df = df_train.copy()
+        
+        # Calculamos estadísticas para estandarización manual (Crítico para Moirai)
+        self.scaler_mean = df_train['y'].mean()
+        self.scaler_std = df_train['y'].std()
+        
+        # Evitar división por cero si es una línea plana
+        if self.scaler_std == 0:
+            self.scaler_std = 1.0
 
     def predict(self, horizon: int) -> pd.DataFrame:
         if self.last_train_df is None:
             raise ValueError("Fit must be called before predict.")
             
-        # --- TIMEGPT INFERENCE ---
+        # --- TIMEGPT ---
         if self.model_name == 'TimeGPT':
-            # TimeGPT requiere 'ds', 'y' (ya lo tenemos)
-            # Ojo: TimeGPT espera un DataFrame con fecha y valor
-            # La librería de Nixtla gestiona la inferencia remota
             fcst_df = self.client.forecast(
                 df=self.last_train_df,
                 h=horizon,
@@ -119,47 +112,49 @@ class FoundationWrapper(BaseForecaster):
                 time_col='ds',
                 target_col='y'
             )
-            # Renombrar columna 'TimeGPT' a 'y_pred'
             return fcst_df[['ds', 'TimeGPT']].rename(columns={'TimeGPT': 'y_pred'})
 
-        # --- MOIRAI INFERENCE ---
+        # --- MOIRAI (Con Escalado Manual) ---
         elif self.model_name == 'Moirai':
-            # Convertir a GluonTS Dataset
-            # Creamos una copia y forzamos la frecuencia en el índice
-            df_moirai = self.last_train_df.set_index('ds').copy()
+            # 1. Escalar entrada: (Valor - Media) / Desv
+            df_scaled = self.last_train_df.copy()
+            df_scaled['y'] = (df_scaled['y'] - self.scaler_mean) / self.scaler_std
+            
+            # 2. Preparar Dataset GluonTS
+            df_moirai = df_scaled.set_index('ds')
             df_moirai = df_moirai.asfreq(self.freq)
             ds = PandasDataset(dict(df_moirai), freq=self.freq)
             
-            # Generar predicción
+            # 3. Predecir
             forecast_it = self.predictor.predict(ds)
             forecast = next(forecast_it)
             
-            # Extraer la media o mediana de las muestras probabilísticas
-            y_pred_values = forecast.mean[:horizon] # O forecast.median
+            # 4. Obtener media (en escala normalizada)
+            y_pred_scaled = forecast.mean[:horizon]
             
-            # Construir fechas futuras
+            # 5. Des-escalar salida: (Pred * Desv) + Media
+            y_pred_values = (y_pred_scaled * self.scaler_std) + self.scaler_mean
+            
+            # Fechas
             last_date = self.last_train_df['ds'].iloc[-1]
             future_dates = pd.date_range(start=last_date, periods=horizon+1, freq=self.freq)[1:]
             
             return pd.DataFrame({'ds': future_dates, 'y_pred': y_pred_values})
 
-        # --- CHRONOS INFERENCE ---
+        # --- CHRONOS (Con Ensemble) ---
         elif self.model_name == 'Chronos':
-            # Chronos requiere un tensor de torch con los valores históricos
+            # Chronos maneja su propio escalado interno, pero aumentamos las muestras
             context_tensor = torch.tensor(self.last_train_df["y"].values)
             
-            # Inferencia
             forecast = self.pipeline.predict(
                 context_tensor,
                 prediction_length=horizon,
-                num_samples=1, # Determinista (o media de muestras)
+                num_samples=20,  # MEJORA: Aumentado de 1 a 20 para estabilidad
             )
             
-            # forecast es un tensor [num_series, num_samples, horizon]
-            # Sacamos el valor medio (o unico si num_samples=1)
+            # Media de las 20 muestras
             y_pred_values = forecast[0].mean(dim=0).numpy()
             
-            # Construir fechas futuras
             last_date = self.last_train_df['ds'].iloc[-1]
             future_dates = pd.date_range(start=last_date, periods=horizon+1, freq=self.freq)[1:]
             

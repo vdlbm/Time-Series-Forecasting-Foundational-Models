@@ -1,89 +1,108 @@
-# config/experiments.yaml
-
 global:
-  project_name: "TFG_Comparativa_Financiera_Total"
+  project_name: "TFG_Sliding_Horizon1"
+  time_col: "Date"
+  random_seed: 42
   
+  # Valores por defecto
+  n_windows: 5
+  test_horizon: 1
+
   datasets:
-    # 1. Renta Variable (S&P 500)
-    - name: "SP500_Daily"
-      path: "data/SP500_Daily.csv"
-      frequency: "D"
-      season_length: 5
-      target_col: "Close"
-      description: "Daily closing price of the S&P 500 stock market index."
-    
+    # --- RENTA VARIABLE ---
     - name: "SP500_Monthly"
       path: "data/SP500_Monthly.csv"
       frequency: "M"
       season_length: 12
       target_col: "Close"
       description: "Monthly closing price of the S&P 500 stock market index."
+      input_window_size: 60   # Train: Últimos 5 años (60 meses)
+      test_horizon: 1         # Predict: Siguiente mes
+      n_windows: 12           # Test: Último año evaluado mes a mes
 
-    # 2. Divisas (EUR/USD)
+    - name: "SP500_Daily"
+      path: "data/SP500_Daily.csv"
+      frequency: "D"
+      season_length: 5
+      target_col: "Close"
+      description: "Daily closing price of the S&P 500 stock market index."
+      input_window_size: 90   # Train: Últimos 3 meses
+      test_horizon: 1         # Predict: Siguiente día
+      n_windows: 30           # Test: Últimos 30 días evaluados uno a uno
+
+    # --- DIVISAS ---
     - name: "EURUSD_Daily"
       path: "data/EURUSD_Daily.csv"
       frequency: "D"
       season_length: 5
       target_col: "Close"
       description: "Daily exchange rate between Euro and US Dollar (EUR/USD)."
-      
+      input_window_size: 90
+      test_horizon: 1
+      n_windows: 30
+
     - name: "EURUSD_Monthly"
       path: "data/EURUSD_Monthly.csv"
       frequency: "M"
       season_length: 12
       target_col: "Close"
       description: "Monthly exchange rate between Euro and US Dollar (EUR/USD)."
-      
-    # 3. Criptoactivos (Bitcoin)
+      input_window_size: 60
+      test_horizon: 1
+      n_windows: 12
+
+    # --- CRIPTO ---
     - name: "BTC_Daily"
       path: "data/BTC_Daily.csv"
       frequency: "D"
       season_length: 7
       target_col: "Close"
       description: "Daily closing price of Bitcoin (BTC) in USD."
-      
+      input_window_size: 90
+      test_horizon: 1
+      n_windows: 30
+
     - name: "BTC_Monthly"
       path: "data/BTC_Monthly.csv"
       frequency: "M"
       season_length: 12
       target_col: "Close"
       description: "Monthly closing price of Bitcoin (BTC) in USD."
-      
-    # 4. Macroeconomía (Inflación)
+      input_window_size: 60
+      test_horizon: 1
+      n_windows: 12
+
+    # --- MACRO ---
     - name: "US_CPI_Monthly"
       path: "data/US_CPI_Monthly.csv"
       frequency: "M"
       season_length: 12
       target_col: "Close"
       description: "Monthly US Consumer Price Index (CPI) for All Urban Consumers."
-  
-  time_col: "Date"
-  
-  # --- PARÁMETROS DE EXPERIMENTACIÓN ---
-  input_window_size: 60 
-  test_horizon: 1        
-  n_windows: 12          
-  random_seed: 42
+      input_window_size: 60
+      test_horizon: 1
+      n_windows: 12
 
 models:
-  # --- GRUPO 1: ESTADÍSTICOS CLÁSICOS ---
+  # CLÁSICOS
   arima:
     type: "classical"
     model_name: "AutoARIMA"
-
   ses: 
     type: "classical"
     model_name: "SimpleExpSmoothing"
-
   holt:
     type: "classical"
     model_name: "Holt" 
-    
   holt_winters:
     type: "classical"
     model_name: "HoltWinters"
 
-  # --- GRUPO 2: DEEP LEARNING ---
+  # FUNDACIONALES
+  timegpt:
+    type: "foundation"
+    model_name: "TimeGPT"
+    finetune_steps: 0
+
   moirai:
     type: "foundation"
     model_name: "Moirai"
@@ -96,8 +115,7 @@ models:
     model_name: "Chronos"
     model_path: "amazon/chronos-t5-small"
 
-  # --- GRUPO 3: LARGE LANGUAGE MODEL ---
-  
+  # LLM
   llama3_local:
     type: "llm_local"
     model_path: "models/Meta-Llama-3.1-8B-Instruct-Q8_0.gguf" 

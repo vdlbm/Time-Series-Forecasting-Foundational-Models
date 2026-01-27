@@ -123,7 +123,16 @@ class FoundationWrapper(BaseForecaster):
             # 2. Preparar Dataset GluonTS
             df_moirai = df_scaled.set_index('ds')
             df_moirai = df_moirai.asfreq(self.freq)
-            ds = PandasDataset(dict(df_moirai), freq=self.freq)
+            
+            # --- FIX: PARCHE PARA GLUONTS/PANDAS ('MS' BUG) ---
+            # Pandas moderno lanza error si pasamos 'MS' a to_period().
+            # Mapeamos 'MS' (Inicio Mes) a 'M' (Mensual Genérico) solo para GluonTS.
+            # Los datos siguen estando en el día 1, pero GluonTS deja de quejarse.
+            gluonts_freq = self.freq
+            if gluonts_freq == 'MS':
+                gluonts_freq = 'M'
+            
+            ds = PandasDataset(dict(df_moirai), freq=gluonts_freq)
             
             # 3. Predecir
             forecast_it = self.predictor.predict(ds)
@@ -135,7 +144,7 @@ class FoundationWrapper(BaseForecaster):
             # 5. Des-escalar salida: (Pred * Desv) + Media
             y_pred_values = (y_pred_scaled * self.scaler_std) + self.scaler_mean
             
-            # Fechas
+            # Fechas (Usamos la freq original para mantener coherencia)
             last_date = self.last_train_df['ds'].iloc[-1]
             future_dates = pd.date_range(start=last_date, periods=horizon+1, freq=self.freq)[1:]
             
@@ -149,7 +158,7 @@ class FoundationWrapper(BaseForecaster):
             forecast = self.pipeline.predict(
                 context_tensor,
                 prediction_length=horizon,
-                num_samples=20,  # MEJORA: Aumentado de 1 a 20 para estabilidad
+                num_samples=20, 
             )
             
             # Media de las 20 muestras

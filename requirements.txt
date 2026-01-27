@@ -36,3 +36,6 @@ pytest>=7.4.0
 # --- 7. DATA DOWNLOAD ---
 yfinance>=0.2.25
 requests>=2.30.0
+
+# --- 8. OTHERS ---
+python-dotenv

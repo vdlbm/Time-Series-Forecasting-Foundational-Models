@@ -15,7 +15,7 @@ global:
       season_length: 12
       target_col: "Close"
       description: "Monthly closing price of the S&P 500 stock market index."
-      input_window_size: 60   # Train: Últimos 5 años (60 meses)
+      input_window_size: 48   # Train: Últimos 4 años (48 meses)
       test_horizon: 1         # Predict: Siguiente mes
       n_windows: 12           # Test: Último año evaluado mes a mes
 
@@ -46,7 +46,7 @@ global:
       season_length: 12
       target_col: "Close"
       description: "Monthly exchange rate between Euro and US Dollar (EUR/USD)."
-      input_window_size: 60
+      input_window_size: 48
       test_horizon: 1
       n_windows: 12
 
@@ -67,7 +67,7 @@ global:
       season_length: 12
       target_col: "Close"
       description: "Monthly closing price of Bitcoin (BTC) in USD."
-      input_window_size: 60
+      input_window_size: 48
       test_horizon: 1
       n_windows: 12
 
@@ -78,7 +78,7 @@ global:
       season_length: 12
       target_col: "Close"
       description: "Monthly US Consumer Price Index (CPI) for All Urban Consumers."
-      input_window_size: 60
+      input_window_size: 48
       test_horizon: 1
       n_windows: 12
 

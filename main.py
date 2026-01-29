@@ -135,9 +135,7 @@ def main():
                 
                 local_model_config = model_config.copy()
                 
-                # --- CORRECCIÓN CRÍTICA: USAR CLAVE 'freq' ---
-                # FoundationWrapper espera 'freq', no 'frequency'
-                local_model_config['freq'] = calculation_freq      # <--- ESTA ES LA CLAVE QUE FALTABA
+                local_model_config['freq'] = calculation_freq     
                 local_model_config['frequency'] = calculation_freq # Mantenemos esta por si acaso otro modelo la usa
                 
                 if local_model_config['type'] == 'classical':

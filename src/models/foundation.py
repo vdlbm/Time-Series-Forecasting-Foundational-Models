@@ -144,8 +144,30 @@ class FoundationWrapper(BaseForecaster):
             
         # --- TIMEGPT ---
         if self.model_name == 'TimeGPT':
+            # Regularize timestamps to match declared frequency.
+            # Financial daily data has market-holiday gaps (Christmas, New Year…)
+            # that the Nixtla API rejects as "missing or duplicate timestamps".
+            # Forward-filling the last known price on holiday dates is standard
+            # practice in financial time series and resolves the issue.
+            df_api = self.last_train_df.copy()
+            has_uid = 'unique_id' in df_api.columns
+            uid_val = df_api['unique_id'].iloc[0] if has_uid else None
+
+            # resample().last() instead of asfreq() so that dates are
+            # re-aligned to the frequency grid (e.g. end-of-month → MS)
+            # AND holiday gaps are created as NaN then forward-filled.
+            df_reg = (
+                df_api.set_index('ds')[['y']]
+                .resample(self.freq).last()
+                .ffill().bfill()
+                .reset_index()
+            )
+
+            if has_uid:
+                df_reg['unique_id'] = uid_val
+
             fcst_df = self.client.forecast(
-                df=self.last_train_df,
+                df=df_reg,
                 h=horizon,
                 freq=self.freq,
                 time_col='ds',
@@ -174,8 +196,13 @@ class FoundationWrapper(BaseForecaster):
             df_scaled['y'] = (df_scaled['y'] - self.scaler_mean) / self.scaler_std
             
             # 3. Preparar Dataset GluonTS
-            df_moirai = df_scaled.set_index('ds')
-            df_moirai = df_moirai.asfreq(self.freq)
+            # resample().last() handles both date alignment (end-of-month → MS)
+            # and business-day holiday gaps, then forward-fill.
+            df_moirai = (
+                df_scaled.set_index('ds')
+                .resample(self.freq).last()
+            )
+            df_moirai['y'] = df_moirai['y'].ffill().bfill()
             
             # --- FIX: PARCHE PARA GLUONTS/PANDAS ('MS' BUG) ---
             gluonts_freq = self.freq

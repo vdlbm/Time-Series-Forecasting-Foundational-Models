@@ -107,9 +107,9 @@ models:
     type: "classical"
     model_name: "Holt"
 
-  holt_winters:
-    type: "classical"
-    model_name: "HoltWinters"
+  #holt_winters:
+   # type: "classical"
+    #model_name: "HoltWinters"
 
   # --- FOUNDATION MODELS (Time Series Specific) ---
   timegpt:

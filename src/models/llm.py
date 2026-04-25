@@ -83,10 +83,21 @@ class LocalLLMWrapper(BaseForecaster):
 
         # Stop tokens (universal + model-specific safety nets)
         stop_tokens = ["History:", "Note:", "Sequence:", "Based on"]
+        # NOTE: Do NOT add "<think>" as a stop token — Qwen3 emits it as the
+        # very first token before any content, so it would truncate the entire
+        # response to empty.  Instead we strip <think>...</think> post-hoc.
         if horizon == 1:
             stop_tokens.append(",")
 
-        dynamic_max_tokens = max(horizon * 12, self.max_tokens)
+        # Base budget for the actual numeric answer
+        answer_tokens = max(horizon * 12, self.max_tokens)
+        # Models with a thinking mode (Qwen3) may emit a <think>...</think>
+        # block before the answer.  Give them extra headroom so the answer
+        # isn't truncated.  The thinking content is stripped post-hoc.
+        if self.disable_thinking:
+            dynamic_max_tokens = answer_tokens + 200
+        else:
+            dynamic_max_tokens = answer_tokens
         
         # 2. INFERENCE
         try:
@@ -101,9 +112,15 @@ class LocalLLMWrapper(BaseForecaster):
             generated_text = output['choices'][0]['message']['content'].strip()
 
             # Strip any residual <think>...</think> content (Qwen3 safety)
+            # First: strip closed thinking blocks
             generated_text = re.sub(
                 r'<think>.*?</think>', '', generated_text, flags=re.DOTALL
             ).strip()
+            # Second: if <think> was opened but never closed (max_tokens hit
+            # mid-thinking), discard everything from <think> onwards
+            think_open = generated_text.find('<think>')
+            if think_open != -1:
+                generated_text = generated_text[:think_open].strip()
 
             generated_text = generated_text.rstrip(',')
             pred_values = DataAdapter.parse_llm_output(generated_text)

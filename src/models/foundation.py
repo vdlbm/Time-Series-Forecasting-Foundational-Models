@@ -97,12 +97,31 @@ class FoundationWrapper(BaseForecaster):
             self.context_length = config.get('context_length', 2048)
             model_path = config.get('model_path', 'google/timesfm-2.0-500m-pytorch')
             print(f"Loading TimesFM ({model_path})...")
-            self.tfm = timesfm.TimesFm(
-                hparams=timesfm.TimesFmHparams(
+
+            # Architecture-specific hparams.
+            # The 2.0-500m checkpoint has 50 layers / 1280 dims / 16 heads,
+            # while the older 200m has 20 layers / 1280 dims / 16 heads.
+            # Default TimesFmHparams only creates 20 layers, causing a
+            # state_dict mismatch when loading the 500m checkpoint.
+            if "500m" in model_path:
+                hparams = timesfm.TimesFmHparams(
                     backend="torch",
                     per_core_batch_size=1,
                     horizon_len=128,
-                ),
+                    num_layers=50,
+                    model_dims=1280,
+                    num_heads=16,
+                )
+            else:
+                # 200m or other variants: use library defaults
+                hparams = timesfm.TimesFmHparams(
+                    backend="torch",
+                    per_core_batch_size=1,
+                    horizon_len=128,
+                )
+
+            self.tfm = timesfm.TimesFm(
+                hparams=hparams,
                 checkpoint=timesfm.TimesFmCheckpoint(
                     huggingface_repo_id=model_path,
                 ),

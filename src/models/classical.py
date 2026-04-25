@@ -1,3 +1,4 @@
+import warnings
 import pandas as pd
 from typing import Dict, Any
 from statsforecast import StatsForecast
@@ -68,8 +69,18 @@ class ClassicalWrapper(BaseForecaster):
             raise ValueError("Model must be fit before predicting.")
 
         # 1. Fit & Predict
-        self.sf.fit(self.last_train_df)
-        preds = self.sf.predict(h=horizon)
+        # Suppress statsforecast ETS divide-by-zero RuntimeWarning that occurs
+        # when early expanding-window folds have fewer points than model parameters.
+        # The warning only affects variance estimation, not the point forecast.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="divide by zero encountered",
+                category=RuntimeWarning,
+                module="statsforecast",
+            )
+            self.sf.fit(self.last_train_df)
+            preds = self.sf.predict(h=horizon)
         
         # 2. Format Output
         # Dynamic column finding (exclude ds and unique_id)

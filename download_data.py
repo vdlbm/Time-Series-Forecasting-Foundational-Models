@@ -5,7 +5,7 @@ import requests
 import io
 
 # --- CONFIGURACIÓN ---
-DATA_DIR = "data"
+DATA_DIR = "DATA"
 
 # 1. Activos Financieros (Yahoo Finance)
 # Formato: ID_Interno: Ticker_Yahoo

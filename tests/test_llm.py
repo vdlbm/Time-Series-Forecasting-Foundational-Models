@@ -43,9 +43,9 @@ class TestLocalLLM:
         """
         # 1. Mockear la respuesta del LLM
         mock_instance = MagicMock()
-        # Simulamos que Llama devuelve un diccionario estilo OpenAI
-        mock_instance.return_value = {
-            'choices': [{'text': ' 105.5, 106.2 '}]
+        # Simulamos que create_chat_completion devuelve un diccionario estilo OpenAI
+        mock_instance.create_chat_completion.return_value = {
+            'choices': [{'message': {'content': ' 105.5, 106.2 '}}]
         }
         mock_llama_class.return_value = mock_instance
         

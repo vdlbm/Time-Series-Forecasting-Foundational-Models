@@ -14,7 +14,7 @@ print(f"✅ API Key encontrada: {api_key[:5]}...{api_key[-5:]}")
 
 # 2. Cargar Datos (SP500 Monthly) simulando lo que hace main.py
 print("\n--- CARGANDO Y LIMPIANDO DATOS ---")
-df = pd.read_csv("data/SP500_Monthly.csv")
+df = pd.read_csv("DATA/SP500_Monthly.csv")
 
 # Renombrar a ds/y si es necesario
 if 'Date' in df.columns:

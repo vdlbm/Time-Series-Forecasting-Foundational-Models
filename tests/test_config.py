@@ -12,8 +12,18 @@ def test_yaml_structure():
         config = yaml.safe_load(f)
         
     assert 'global' in config, "Falta la sección 'global'"
+    assert 'datasets' in config, "Falta la sección 'datasets'"
     assert 'models' in config, "Falta la sección 'models'"
     
-    # Verificar tipos de datos clave
-    assert isinstance(config['global']['input_window_size'], int)
-    assert isinstance(config['global']['n_windows'], int)
+    # Verificar claves globales
+    assert isinstance(config['global']['start_date'], str)
+    assert isinstance(config['global']['initial_train_end'], str)
+    assert isinstance(config['global']['random_seed'], int)
+    
+    # Verificar que hay al menos 11 modelos (naive + 4 classical + 4 foundation + 2 LLM)
+    assert len(config['models']) >= 11, f"Se esperan >= 11 modelos, hay {len(config['models'])}"
+    
+    # Verificar que los LLMs tienen disable_thinking configurado
+    for key, model_cfg in config['models'].items():
+        if model_cfg.get('type') == 'llm_local':
+            assert 'disable_thinking' in model_cfg, f"Modelo LLM '{key}' sin disable_thinking"

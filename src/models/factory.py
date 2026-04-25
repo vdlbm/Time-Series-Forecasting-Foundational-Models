@@ -5,6 +5,7 @@ from .base import BaseForecaster
 from .classical import ClassicalWrapper
 from .llm import LocalLLMWrapper
 from .foundation import FoundationWrapper
+from .naive import NaiveForecaster
 
 class ModelFactory:
     """
@@ -28,8 +29,12 @@ class ModelFactory:
         # Normalize type to lowercase to avoid case-sensitivity errors
         model_type = config.get('type', '').lower()
         
+        # 0. Naive Baseline (Random Walk)
+        if model_type == 'naive':
+            return NaiveForecaster(config)
+        
         # 1. Classical Statistical Models (ARIMA, Holt, ETS)
-        if model_type == 'classical':
+        elif model_type == 'classical':
             return ClassicalWrapper(config)
         
         # 2. Local LLM (Llama-3 via HuggingFace)
@@ -42,4 +47,4 @@ class ModelFactory:
         
         # Error Handling for Typographical Errors in YAML
         else:
-            raise ValueError(f"Unknown model type: '{model_type}'. Supported: classical, llm_local, foundation.")
+            raise ValueError(f"Unknown model type: '{model_type}'. Supported: naive, classical, llm_local, foundation.")

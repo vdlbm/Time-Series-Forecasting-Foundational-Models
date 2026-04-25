@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from src.evaluation.metrics import PerformanceEvaluator
 
+
 class TestPerformanceEvaluator:
     
     def test_perfect_prediction(self):
@@ -83,3 +84,58 @@ class TestPerformanceEvaluator:
         # El MAPE debería ser grande pero no NaN/Inf gracias al epsilon
         assert metrics['MAPE'] > 0
         assert np.isfinite(metrics['MAPE'])
+
+
+class TestSharpeRatio:
+
+    def test_positive_sharpe(self):
+        """Consistent positive returns → positive Sharpe."""
+        returns = np.array([2.0, 1.5, 3.0, 2.5, 1.0] * 10)  # 50 returns
+        sharpe = PerformanceEvaluator.sharpe_ratio(returns, periods_per_year=252)
+        assert sharpe > 0
+
+    def test_zero_std_returns_zero(self):
+        """If all returns are identical, std=0 → Sharpe=0."""
+        returns = np.array([1.0, 1.0, 1.0, 1.0])
+        sharpe = PerformanceEvaluator.sharpe_ratio(returns, periods_per_year=12)
+        assert sharpe == 0.0
+
+    def test_single_return(self):
+        """Single return → safe fallback."""
+        sharpe = PerformanceEvaluator.sharpe_ratio(np.array([5.0]), 252)
+        assert sharpe == 0.0
+
+
+class TestMaxDrawdown:
+
+    def test_no_drawdown(self):
+        """Monotonically increasing equity → zero drawdown."""
+        returns = np.array([1.0, 2.0, 3.0, 1.0, 2.0])
+        mdd = PerformanceEvaluator.max_drawdown(returns)
+        assert mdd >= 0.0  # Should be 0 or very small
+
+    def test_full_loss(self):
+        """Large negative return → significant drawdown."""
+        returns = np.array([10.0, -50.0, 5.0])
+        mdd = PerformanceEvaluator.max_drawdown(returns)
+        assert mdd > 0.0
+
+    def test_empty_returns(self):
+        """Empty array → zero drawdown."""
+        mdd = PerformanceEvaluator.max_drawdown(np.array([]))
+        assert mdd == 0.0
+
+
+class TestCalmarRatio:
+
+    def test_positive_calmar(self):
+        """Positive returns with some drawdown → positive Calmar."""
+        returns = np.array([2.0, -1.0, 3.0, -0.5, 2.0] * 10)
+        calmar = PerformanceEvaluator.calmar_ratio(returns, periods_per_year=252)
+        assert calmar > 0
+
+    def test_zero_drawdown_returns_zero(self):
+        """If max drawdown is zero, Calmar → 0."""
+        returns = np.array([1.0, 1.0, 1.0])
+        calmar = PerformanceEvaluator.calmar_ratio(returns, periods_per_year=12)
+        assert calmar == 0.0

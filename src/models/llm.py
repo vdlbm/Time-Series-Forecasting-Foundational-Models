@@ -1,3 +1,4 @@
+import re
 import pandas as pd
 from typing import Dict, Any, Optional
 from llama_cpp import Llama
@@ -8,21 +9,28 @@ from src.data.adapters import DataAdapter
 
 class LocalLLMWrapper(BaseForecaster):
     """
-    Wrapper optimizado para Mac (Apple Silicon) usando GGUF y Llama.cpp.
+    Model-agnostic wrapper for local LLM inference via llama.cpp (GGUF format).
+
+    Uses create_chat_completion() which auto-detects the chat template from
+    GGUF metadata, making it compatible with Gemma, Phi-4, Llama, Qwen, etc.
+
+    Handles Qwen3's "thinking mode" by appending /no_think to the user message
+    and stripping any residual <think>...</think> content from the output.
     """
     
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.model_path = config.get('model_path', "models/Meta-Llama-3.1-8B-Instruct-Q8_K_M.gguf")
+        self.model_path = config.get('model_path', "models/model.gguf")
         
-        # Aumentamos contexto por seguridad (aunque usaremos 1024 en config)
-        self.context_size = config.get('context_window_size', 2048) 
-        self.max_tokens = config.get('max_new_tokens', 10)
+        self.context_size = config.get('context_window_size', 4096) 
+        self.max_tokens = config.get('max_new_tokens', 20)
+        self.llm_window_size = config.get('llm_window_size', 40)
+        self.disable_thinking = config.get('disable_thinking', False)
         
         self.dataset_description = config.get('dataset_description', 'Financial time series data')
         self.df_history: Optional[pd.DataFrame] = None
         
-        print(f"Cargando Llama-3 en Mac desde: {self.model_path}...")
+        print(f"Loading LLM from: {self.model_path}...")
         
         try:
             self.model = Llama(
@@ -31,9 +39,9 @@ class LocalLLMWrapper(BaseForecaster):
                 n_ctx=self.context_size,
                 verbose=False
             )
-            print("✅ Modelo cargado en GPU correctamente.")
+            print(f"✅ {self.name} loaded successfully.")
         except Exception as e:
-            print(f"❌ Error cargando el modelo: {e}")
+            print(f"❌ Error loading {self.name}: {e}")
             raise e
 
     def fit(self, df_train: pd.DataFrame) -> None:
@@ -46,56 +54,67 @@ class LocalLLMWrapper(BaseForecaster):
         if self.df_history is None:
             raise ValueError("Model must be fit before predicting.")
 
-        # 1. PREPARAR PROMPT (Data -> Text)
-        # Usamos tu DataAdapter ("from X increasing to Y...")
-        context_text = DataAdapter.to_llm_prompt(self.df_history, window_size=20) 
+        # 1. PREPARE PROMPT (Data -> Text)
+        context_text = DataAdapter.to_llm_prompt(
+            self.df_history, window_size=self.llm_window_size
+        )
         
-        # --- CAMBIO CRÍTICO: PROMPT "ANTI-SESGO" ---
-        # Le decimos qué es el dato, pero le PROHIBIMOS usar conocimiento externo.
+        # Anti-bias system message: force pure pattern recognition
         system_msg = (
             "You are a pure mathematical pattern recognition engine. "
-            f"Context: The data represents {self.dataset_description}, BUT you must ignore any real-world knowledge about this asset. "
+            f"Context: The data represents {self.dataset_description}, "
+            "BUT you must ignore any real-world knowledge about this asset. "
             "Focus EXCLUSIVELY on the numerical trends provided in the history below. "
             f"Task: Extrapolate the mathematical sequence to predict the NEXT {horizon} value(s). "
             "Output ONLY the numerical value(s), separated by commas."
         )
-        # -------------------------------------------
 
         user_msg = f"History sequence:\n{context_text}\n\nPrediction:"
-        
-        prompt = (
-            f"<|start_header_id|>system<|end_header_id|>\n\n"
-            f"{system_msg}<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n"
-            f"{user_msg}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
-        )
-        
-        # --- LÓGICA DE FRENADO ---
-        stop_tokens = ["<|eot_id|>", "\n", "History:", "Note:", "Sequence"]
+
+        # Qwen3 thinking mode: append /no_think to force direct output
+        if self.disable_thinking:
+            user_msg += " /no_think"
+
+        # Model-agnostic chat completion (template auto-detected from GGUF)
+        messages = [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_msg},
+        ]
+
+        # Stop tokens (universal + model-specific safety nets)
+        stop_tokens = ["History:", "Note:", "Sequence:", "Based on"]
+        if self.disable_thinking:
+            stop_tokens.append("<think>")  # Safety net: halt if thinking starts
         if horizon == 1:
             stop_tokens.append(",")
 
-        dynamic_max_tokens = horizon * 12
+        dynamic_max_tokens = max(horizon * 12, self.max_tokens)
         
-        # 2. INFERENCIA
+        # 2. INFERENCE
         try:
-            output = self.model(
-                prompt,
+            output = self.model.create_chat_completion(
+                messages=messages,
                 max_tokens=dynamic_max_tokens,
                 stop=stop_tokens,
-                echo=False,
-                temperature=0.01 # Determinista al máximo
+                temperature=0.01,  # Near-deterministic
             )
             
-            # 3. PROCESAR RESPUESTA
-            generated_text = output['choices'][0]['text'].strip()
+            # 3. PARSE RESPONSE
+            generated_text = output['choices'][0]['message']['content'].strip()
+
+            # Strip any residual <think>...</think> content (Qwen3 safety)
+            generated_text = re.sub(
+                r'<think>.*?</think>', '', generated_text, flags=re.DOTALL
+            ).strip()
+
             generated_text = generated_text.rstrip(',')
             pred_values = DataAdapter.parse_llm_output(generated_text)
             
         except Exception as e:
-            print(f"⚠️ Error en inferencia LLM: {e}")
+            print(f"⚠️ LLM inference error ({self.name}): {e}")
             pred_values = []
 
-        # Fallback
+        # Fallback: repeat last known value
         if not pred_values:
             if self.df_history is not None and not self.df_history.empty:
                 last_val = self.df_history['y'].iloc[-1]
@@ -108,7 +127,7 @@ class LocalLLMWrapper(BaseForecaster):
             
         pred_values = pred_values[:horizon]
             
-        # Formatear salida
+        # Format output
         last_date = self.df_history.index[-1]
         freq = pd.infer_freq(self.df_history.index) or 'D'
         future_dates = pd.date_range(start=last_date, periods=horizon+1, freq=freq)[1:]

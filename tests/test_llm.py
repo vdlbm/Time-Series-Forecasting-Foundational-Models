@@ -21,6 +21,10 @@ class TestLocalLLM:
         """
         # Configuramos el Mock
         mock_instance = MagicMock()
+        # create_chat_completion() devuelve choices[0]['message']['content']
+        mock_instance.create_chat_completion.return_value = {
+            'choices': [{'message': {'content': ' 105.5, 106.2 '}}]
+        }
         mock_llama_class.return_value = mock_instance
         
         # Instanciamos nuestro wrapper

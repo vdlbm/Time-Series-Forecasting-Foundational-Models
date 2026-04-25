@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Dict
+from typing import Dict, List
 
 class PerformanceEvaluator:
     """
@@ -56,3 +56,71 @@ class PerformanceEvaluator:
             "Directional_Accuracy": float(dir_acc),
             "Strategy_Return_Pct": float(strategy_return)
         }
+
+    # --- FINANCIAL METRICS (computed over aggregated fold returns) ---
+
+    @staticmethod
+    def sharpe_ratio(strategy_returns: np.ndarray, periods_per_year: int) -> float:
+        """
+        Annualized Sharpe Ratio of the long/short strategy.
+
+        Args:
+            strategy_returns: Array of per-fold strategy returns (in %).
+            periods_per_year: Annualization factor (12 for monthly, 252 for
+                              daily 5d/w, 365 for daily 7d/w).
+
+        Returns:
+            Annualized Sharpe Ratio. Returns 0.0 if std is zero.
+        """
+        r = np.array(strategy_returns, dtype=float)
+        if len(r) < 2:
+            return 0.0
+        std = np.std(r, ddof=1)
+        if std == 0:
+            return 0.0
+        return float(np.mean(r) / std * np.sqrt(periods_per_year))
+
+    @staticmethod
+    def max_drawdown(strategy_returns: np.ndarray) -> float:
+        """
+        Maximum Drawdown of the cumulative equity curve.
+
+        Args:
+            strategy_returns: Array of per-fold strategy returns (in %).
+
+        Returns:
+            Maximum drawdown as a positive percentage (e.g., 15.3 means -15.3%).
+        """
+        r = np.array(strategy_returns, dtype=float) / 100.0  # Convert to decimal
+        equity = np.cumprod(1.0 + r)
+        running_max = np.maximum.accumulate(equity)
+        drawdowns = (running_max - equity) / running_max
+        return float(np.max(drawdowns) * 100.0) if len(drawdowns) > 0 else 0.0
+
+    @staticmethod
+    def calmar_ratio(
+        strategy_returns: np.ndarray, periods_per_year: int
+    ) -> float:
+        """
+        Calmar Ratio = Annualized Return / Max Drawdown.
+
+        Args:
+            strategy_returns: Array of per-fold strategy returns (in %).
+            periods_per_year: Annualization factor.
+
+        Returns:
+            Calmar Ratio. Returns 0.0 if max drawdown is zero.
+        """
+        r = np.array(strategy_returns, dtype=float) / 100.0
+        if len(r) < 1:
+            return 0.0
+
+        # Annualized return via geometric mean
+        total_return = np.prod(1.0 + r)
+        n_periods = len(r)
+        ann_return = (total_return ** (periods_per_year / n_periods) - 1.0) * 100.0
+
+        mdd = PerformanceEvaluator.max_drawdown(strategy_returns)
+        if mdd == 0:
+            return 0.0
+        return float(ann_return / mdd)

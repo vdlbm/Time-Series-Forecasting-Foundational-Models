@@ -1,285 +1,425 @@
+"""
+TFG: Comparative Analysis of Foundational Models and LLMs
+for Zero-Shot Time Series Forecasting in Financial Decision-Making.
+
+Experiment runner with:
+- Date-based expanding window backtesting.
+- Multi-horizon evaluation (h=1, h=3/5/7).
+- 11 models: Naive + 4 Classical + 4 Foundation + 2 LLM.
+- Financial metrics (Sharpe, MaxDD, Calmar) computed per model run.
+- Checkpoint saving after each model to allow resumption.
+"""
+
 import yaml
 import pandas as pd
+import numpy as np
 import time
 import torch
 import gc
 import os
 import sys
 import logging
-import contextlib
-from typing import List, Dict
+from datetime import datetime
+from typing import List, Dict, Tuple, Optional
 from dotenv import load_dotenv
 
-# Cargar variables de entorno (.env) para TimeGPT
 load_dotenv()
 
-# --- SILENCIAR LOGS DE NIXTLA ---
+# Silence Nixtla logs
 logging.getLogger("nixtla").setLevel(logging.ERROR)
 
-# Importaciones del proyecto
 from src.data.loader import TimeSeriesLoader
 from src.models.factory import ModelFactory
-from src.evaluation.splitter import RollingWindowSplitter
+from src.evaluation.splitter import ExpandingWindowSplitter
 from src.evaluation.metrics import PerformanceEvaluator
 
-# Context manager para silenciar stderr
-@contextlib.contextmanager
-def suppress_stderr():
-    stderr_fd = sys.stderr.fileno()
-    saved_stderr_fd = os.dup(stderr_fd)
+
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
+
+
+def setup_logging() -> logging.Logger:
+    """Configure logging to both console and timestamped file."""
+    os.makedirs("logs", exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = f"logs/experiment_{timestamp}.log"
+
+    logger = logging.getLogger("tfg")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+
+    # File handler
+    fh = logging.FileHandler(log_path, encoding="utf-8")
+    fh.setLevel(logging.INFO)
+    fh.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
+    logger.addHandler(fh)
+
+    # Console handler
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(ch)
+
+    logger.info(f"Logging to: {log_path}")
+    return logger
+
+
+def load_config(path: str = "config/experiments.yaml") -> dict:
+    """Load YAML configuration."""
+    with open(path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+def load_and_filter_dataset(
+    ds_name: str, ds_config: dict, global_cfg: dict, logger: logging.Logger
+) -> Optional[pd.DataFrame]:
+    """
+    Load CSV, filter to [start_date, end_date), clean NaN.
+
+    Returns DataFrame with columns ['ds', 'y'] (no index), sorted by ds.
+    Returns None if loading fails.
+    """
     try:
-        with open(os.devnull, 'w') as devnull:
-            os.dup2(devnull.fileno(), stderr_fd)
-        yield
-    finally:
-        os.dup2(saved_stderr_fd, stderr_fd)
-        os.close(saved_stderr_fd)
+        loader = TimeSeriesLoader(
+            file_path=ds_config["path"],
+            time_col=global_cfg["time_col"],
+            target_col=global_cfg["target_col"],
+        )
+        loaded = loader.load()
+        df = loaded.df if hasattr(loaded, "df") else loaded
+
+        # Ensure 'ds' is a column, not the index
+        if "ds" not in df.columns:
+            df = df.reset_index()
+        df["ds"] = pd.to_datetime(df["ds"]).dt.tz_localize(None)
+
+        # Filter to experiment window
+        start = pd.Timestamp(global_cfg["start_date"])
+        end = pd.Timestamp(global_cfg["end_date"])
+        df = df[(df["ds"] >= start) & (df["ds"] < end)].copy()
+
+        # Drop NaN
+        df = df.dropna(subset=["y"])
+        df = df.sort_values("ds").reset_index(drop=True)
+
+        # Keep only ds and y
+        df = df[["ds", "y"]].copy()
+
+        logger.info(
+            f"  Dataset loaded: {len(df)} rows "
+            f"[{df['ds'].iloc[0].date()} → {df['ds'].iloc[-1].date()}]"
+        )
+        return df
+
+    except Exception as e:
+        logger.error(f"  FAILED to load dataset {ds_name}: {e}")
+        return None
+
+
+def build_splitter(
+    global_cfg: dict, ds_config: dict, horizon: int
+) -> ExpandingWindowSplitter:
+    """Construct splitter from config."""
+    return ExpandingWindowSplitter(
+        initial_train_end=global_cfg["initial_train_end"],
+        fold_step=ds_config["fold_step"],
+        test_horizon=horizon,
+    )
+
+
+def prepare_train_for_model(
+    train_df: pd.DataFrame,
+    model_key: str,
+    model_config: dict,
+    freq: str,
+) -> pd.DataFrame:
+    """
+    Prepare train DataFrame for a specific model.
+
+    Handles TimeGPT unique_id, frequency assignment, and NaN cleaning.
+    Does NOT modify the original DataFrame.
+    """
+    df = train_df.copy()
+
+    # Clean residual NaN (forward-fill then back-fill)
+    df["y"] = df["y"].ffill().bfill()
+    if df["y"].isna().any():
+        df["y"] = df["y"].fillna(0)
+
+    if model_key.lower() == "timegpt":
+        df["unique_id"] = "series_1"
+        df = df[["unique_id", "ds", "y"]]
+
+    return df
+
+
+def run_model_on_folds(
+    model,
+    model_key: str,
+    model_config: dict,
+    splitter: ExpandingWindowSplitter,
+    df: pd.DataFrame,
+    horizon: int,
+    freq: str,
+    logger: logging.Logger,
+) -> Tuple[List[Dict], List[Dict]]:
+    """
+    Execute all folds for one model on one dataset/horizon.
+
+    Returns:
+        (detailed_records, fold_metrics) where each is a list of dicts.
+    """
+    detailed_records: List[Dict] = []
+    fold_metrics: List[Dict] = []
+
+    for i, (train_df, test_df) in enumerate(splitter.split(df)):
+        start_time = time.time()
+
+        # Prepare train data
+        prepared_train = prepare_train_for_model(
+            train_df, model_key, model_config, freq
+        )
+
+        if len(prepared_train) < 2:
+            continue
+
+        # TimeGPT rate limit
+        if model_key.lower() == "timegpt":
+            time.sleep(1.5)
+
+        # Retry logic
+        max_retries = 3
+        forecast_df = None
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                model.fit(prepared_train)
+                forecast_df = model.predict(horizon=len(test_df))
+                break
+            except Exception as e:
+                last_error = e
+                if "429" in str(e):
+                    time.sleep(5 * (attempt + 1))
+                else:
+                    time.sleep(1)
+
+        if forecast_df is None:
+            logger.warning(f"    Fold {i}: FAILED ({last_error})")
+            continue
+
+        inference_time = time.time() - start_time
+
+        y_true = test_df["y"].values
+        y_pred = forecast_df["y_pred"].values
+        last_known_y = train_df["y"].iloc[-1]
+
+        metrics = PerformanceEvaluator.calculate_metrics(
+            y_true=y_true, y_pred=y_pred, previous_y=last_known_y
+        )
+
+        # Record details (first test date as reference)
+        test_date = test_df["ds"].iloc[0]
+
+        detailed_records.append(
+            {
+                "Date": test_date,
+                "y_true": float(y_true[0]),
+                "y_pred": float(y_pred[0]),
+                "fold": i,
+                "train_size": len(train_df),
+                **metrics,
+            }
+        )
+
+        metrics["inference_time"] = inference_time
+        fold_metrics.append(metrics)
+
+    return detailed_records, fold_metrics
+
+
+def compute_financial_metrics(
+    fold_metrics: List[Dict], periods_per_year: int
+) -> Dict[str, float]:
+    """Compute Sharpe, MaxDD, Calmar from per-fold strategy returns."""
+    if not fold_metrics:
+        return {"Sharpe_Ratio": 0.0, "Max_Drawdown": 0.0, "Calmar_Ratio": 0.0}
+
+    returns = np.array([m["Strategy_Return_Pct"] for m in fold_metrics])
+
+    return {
+        "Sharpe_Ratio": PerformanceEvaluator.sharpe_ratio(returns, periods_per_year),
+        "Max_Drawdown": PerformanceEvaluator.max_drawdown(returns),
+        "Calmar_Ratio": PerformanceEvaluator.calmar_ratio(returns, periods_per_year),
+    }
+
+
+def save_checkpoint(records: List[Dict], path: str) -> None:
+    """Save partial results to CSV."""
+    if records:
+        pd.DataFrame(records).to_csv(path, index=False)
+
+
+# =============================================================================
+# MAIN EXPERIMENT LOOP
+# =============================================================================
+
 
 def main():
-    print("\n--- INICIANDO EXPERIMENTO TFG (FREQ KEY FIX) ---")
-    
-    # 1. CARGA DE CONFIGURACIÓN
-    with open("config/experiments.yaml", "r", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
-        
-    global_cfg = cfg['global']
-    models_cfg = cfg['models']
-    
-    summary_log: List[Dict] = []
-    detailed_predictions_log: List[Dict] = []
+    logger = setup_logging()
+    logger.info("=" * 60)
+    logger.info("TFG EXPERIMENT: Expanding Window, Date-Based, Multi-Horizon")
+    logger.info("=" * 60)
 
-    # 2. BUCLE DE DATASETS
-    for ds_config in global_cfg['datasets']:
-        dataset_name = ds_config['name']
-        print(f"\n████████ PROCESANDO DATASET: {dataset_name} ████████")
-        
-        ds_input_window = ds_config.get('input_window_size', 90)
-        ds_test_horizon = ds_config.get('test_horizon', 1)
-        ds_n_windows = ds_config.get('n_windows', 12)
-        
-        print(f"   [Config] Train: {ds_input_window} | Horizon: {ds_test_horizon} | Tests: {ds_n_windows}")
-        
-        dataset_console_table = []
-        
-        try:
-            # A. Carga de Datos
-            loader = TimeSeriesLoader(
-                file_path=ds_config['path'],
-                time_col=global_cfg['time_col'],
-                target_col=ds_config['target_col']
-            )
-            
-            loaded_data = loader.load()
-            if isinstance(loaded_data, pd.DataFrame):
-                df = loaded_data
-            elif hasattr(loaded_data, 'df'):
-                df = loaded_data.df
-            else:
-                raise ValueError("Formato de Loader no reconocido")
-            
-            if 'ds' in df.columns:
-                df = df.set_index('ds')
-            
-            df.index = pd.to_datetime(df.index).tz_localize(None)
-            
-            # --- ESTRATEGIA DUAL ---
-            original_target_freq = ds_config['frequency'] 
-            calculation_freq = original_target_freq       
-            
-            if original_target_freq == 'M':
-                df.index = df.index.map(lambda t: t.replace(day=1))
-                calculation_freq = 'MS'
-            
-            # Limpieza y Reconstrucción Global
-            df = df[~df.index.duplicated(keep='last')]
-            df = df.resample(calculation_freq).last()
-            
-            if len(df) > 1:
-                perfect_index = pd.date_range(
-                    start=df.index.min(),
-                    end=df.index.max(),
-                    freq=calculation_freq
-                )
-                df = df.reindex(perfect_index)
-            
-            df = df.ffill() 
-            
-            # Cortes de Fecha
-            df = df[df.index < '2026-01-01'] 
-            
-            if 'D' in calculation_freq:
-                df = df[df.index >= '2020-01-01'] 
-            elif 'M' in calculation_freq: 
-                df = df[df.index >= '2000-01-01']
-                
-            df = df.dropna()
-            df.index.name = 'ds'
-            df.index.freq = calculation_freq
-            
-            print(f"   -> Datos listos: {len(df)} registros. (Calc Freq: {calculation_freq})")
-            
-            min_required = ds_input_window + (ds_n_windows * ds_test_horizon)
-            if len(df) < min_required:
-                print(f"   [!] ERROR: Insuficientes datos. Necesarios: {min_required}, Disponibles: {len(df)}")
+    cfg = load_config()
+    global_cfg = cfg["global"]
+    datasets_cfg = cfg["datasets"]
+    models_cfg = cfg["models"]
+
+    os.makedirs("results", exist_ok=True)
+
+    summary_log: List[Dict] = []
+    detailed_log: List[Dict] = []
+
+    # ---- MAIN LOOP: Dataset → Horizon → Model ----
+    for ds_name, ds_config in datasets_cfg.items():
+        logger.info(f"\n{'█' * 60}")
+        logger.info(f"DATASET: {ds_name}")
+        logger.info(f"{'█' * 60}")
+
+        df = load_and_filter_dataset(ds_name, ds_config, global_cfg, logger)
+        if df is None:
+            continue
+
+        freq = ds_config["frequency"]
+        horizons = ds_config["horizons"]
+        periods_per_year = ds_config["periods_per_year"]
+
+        for horizon in horizons:
+            splitter = build_splitter(global_cfg, ds_config, horizon)
+            n_folds = splitter.count_folds(df)
+            logger.info(f"\n  Horizon h={horizon} | Folds: {n_folds}")
+
+            if n_folds < 1:
+                logger.warning(f"  SKIPPED: Not enough data for h={horizon}")
                 continue
 
-            splitter = RollingWindowSplitter(
-                n_windows=ds_n_windows, 
-                test_horizon=ds_test_horizon,
-                input_window_size=ds_input_window
-            )
-            
-            # 3. BUCLE DE MODELOS
             for model_key, model_config in models_cfg.items():
-                print(f"   > Modelo: {model_key.upper():<15} | Estado: ⏳ Procesando...", end="\r")
-                
-                local_model_config = model_config.copy()
-                
-                local_model_config['freq'] = calculation_freq     
-                local_model_config['frequency'] = calculation_freq # Mantenemos esta por si acaso otro modelo la usa
-                
-                if local_model_config['type'] == 'classical':
-                    local_model_config['season_length'] = ds_config['season_length']
-                if local_model_config['type'] == 'llm_local':
-                    local_model_config['dataset_description'] = ds_config.get('description', 'Financial Time Series')
+                logger.info(
+                    f"    Model: {model_key.upper():<20} ⏳ Processing...",
+                )
+
+                local_config = model_config.copy()
+                local_config["freq"] = freq
+                local_config["frequency"] = freq
+
+                if local_config["type"] == "classical":
+                    local_config["season_length"] = ds_config["season_length"]
+                if local_config["type"] == "llm_local":
+                    local_config["dataset_description"] = ds_config.get(
+                        "description", "Financial time series"
+                    )
 
                 try:
-                    model = ModelFactory.get_model(local_model_config)
-                    model_metrics_accum = []
-                    
-                    for i, (train_df, test_df) in enumerate(splitter.split(df)):
-                        
-                        start_time = time.time()
-                        
-                        # --- SANITIZACIÓN SEGURA ---
-                        train_df = train_df.asfreq(calculation_freq)
-                        train_df = train_df.ffill().bfill()
-                        
-                        if train_df.isna().any().any():
-                            train_df = train_df.fillna(0)
-                        
-                        if len(train_df) < (ds_input_window * 0.9): 
-                            continue
+                    model = ModelFactory.get_model(local_config)
 
-                        # --- PREPARACIÓN ESPECÍFICA TIMEGPT ---
-                        if model_key.lower() == 'timegpt':
-                            # Delay para evitar Rate Limit
-                            time.sleep(2) 
-                            
-                            train_df = train_df.reset_index() 
-                            train_df['unique_id'] = 'series_1'
-                            train_df = train_df[['unique_id', 'ds', 'y']] 
-                        else:
-                            train_df = train_df.reset_index()
+                    detailed_records, fold_metrics = run_model_on_folds(
+                        model=model,
+                        model_key=model_key,
+                        model_config=local_config,
+                        splitter=splitter,
+                        df=df,
+                        horizon=horizon,
+                        freq=freq,
+                        logger=logger,
+                    )
 
-                        # REINTENTOS (RETRY LOGIC)
-                        max_retries = 3
-                        forecast_df = None
-                        last_error = None
-                        
-                        for attempt in range(max_retries):
-                            try:
-                                model.fit(train_df) 
-                                forecast_df = model.predict(horizon=len(test_df))
-                                break 
-                            except Exception as e:
-                                last_error = e
-                                if "429" in str(e):
-                                    time.sleep(5 * (attempt + 1))
-                                else:
-                                    time.sleep(1)
-                        
-                        if forecast_df is None:
-                            print(f"\n   [!] Error fatal en ventana {i} ({model_key})")
-                            print(f"       Error: {str(last_error)}")
-                            continue
-                            
-                        inference_time = time.time() - start_time
-                        
-                        y_true = test_df['y'].values
-                        y_pred = forecast_df['y_pred'].values
-                        last_known_y = train_df['y'].iloc[-1]
-                        
-                        metrics = PerformanceEvaluator.calculate_metrics(
-                            y_true=y_true, 
-                            y_pred=y_pred, 
-                            previous_y=last_known_y
+                    if fold_metrics:
+                        # Average technical metrics
+                        avg = pd.DataFrame(fold_metrics).mean().to_dict()
+
+                        # Financial metrics (over full returns series)
+                        fin = compute_financial_metrics(fold_metrics, periods_per_year)
+
+                        summary_entry = {
+                            "Dataset": ds_name,
+                            "Horizon": horizon,
+                            "Model": model_key,
+                            "Type": local_config["type"],
+                            "n_folds": len(fold_metrics),
+                            **avg,
+                            **fin,
+                        }
+                        summary_log.append(summary_entry)
+
+                        # Attach metadata to detailed records
+                        for rec in detailed_records:
+                            rec["Dataset"] = ds_name
+                            rec["Horizon"] = horizon
+                            rec["Model"] = model_key
+                            rec["Type"] = local_config["type"]
+                        detailed_log.extend(detailed_records)
+
+                        logger.info(
+                            f"    Model: {model_key.upper():<20} ✅ "
+                            f"RMSE={avg['RMSE']:.4f} | "
+                            f"MAPE={avg['MAPE']:.2f}% | "
+                            f"DA={avg['Directional_Accuracy']:.1f}% | "
+                            f"Sharpe={fin['Sharpe_Ratio']:.2f}"
                         )
-                        
-                        # REVERT LOGIC
-                        report_date = test_df.index[0]
-                        if original_target_freq == 'M':
-                            report_date = report_date + pd.offsets.MonthEnd(0)
-                        
-                        detailed_predictions_log.append({
-                            'Dataset': dataset_name,
-                            'Frequency': original_target_freq, 
-                            'Model': model_key,
-                            'Type': local_model_config['type'],
-                            'Date': report_date,               
-                            'y_true': float(y_true[0]),
-                            'y_pred': float(y_pred[0]),
-                            **metrics 
-                        })
-                        
-                        metrics['inference_time'] = inference_time
-                        model_metrics_accum.append(metrics)
-
-                    if model_metrics_accum:
-                        avg_metrics = pd.DataFrame(model_metrics_accum).mean().to_dict()
-                        summary_log.append({
-                            'Dataset': dataset_name,
-                            'Model': model_key,
-                            'Type': local_model_config['type'],
-                            **avg_metrics
-                        })
-                        dataset_console_table.append({
-                            'Model': model_key.upper(),
-                            'RMSE': avg_metrics['RMSE'],
-                            'Time(s)': avg_metrics['inference_time']
-                        })
-                        print(f"   > Modelo: {model_key.upper():<15} | Estado: ✅ (RMSE: {avg_metrics['RMSE']:.4f})")
                     else:
-                        print(f"   > Modelo: {model_key.upper():<15} | Estado: ⚠️ (Falló en todas las ventanas)")
+                        logger.warning(
+                            f"    Model: {model_key.upper():<20} ⚠️ All folds failed"
+                        )
 
+                    # Cleanup
                     del model
                     gc.collect()
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
 
-                except Exception as e:
-                    print(f"   > Modelo: {model_key.upper():<15} | Estado: ❌ ERROR GENERAL ({str(e)[:100]}...)")
-                    continue
-            
-            if dataset_console_table:
-                print("\n" + "="*55)
-                print(f" RESUMEN DE RENDIMIENTO: {dataset_name}")
-                print("="*55)
-                df_table = pd.DataFrame(dataset_console_table)
-                df_table = df_table[['Model', 'RMSE', 'Time(s)']]
-                print(df_table.sort_values('RMSE').to_string(index=False, float_format=lambda x: "{:.4f}".format(x)))
-                print("="*55 + "\n")
-                    
-        except Exception as e:
-            print(f"\n[!] ERROR CRÍTICO EN DATASET {dataset_name}: {str(e)}")
-            continue
+                    # Checkpoint after each model
+                    save_checkpoint(
+                        summary_log, f"results/summary_checkpoint.csv"
+                    )
 
-    print("\n--- GUARDANDO RESULTADOS EN DISCO ---")
-    if not os.path.exists("results"):
-        os.makedirs("results")
-        
+                except Exception as e:
+                    logger.error(
+                        f"    Model: {model_key.upper():<20} ❌ {str(e)[:120]}"
+                    )
+                    continue
+
+    # ---- SAVE FINAL RESULTS ----
+    logger.info("\n" + "=" * 60)
+    logger.info("SAVING FINAL RESULTS")
+    logger.info("=" * 60)
+
     if summary_log:
         summary_df = pd.DataFrame(summary_log)
-        cols = ['Dataset', 'Model', 'RMSE', 'MAPE', 'Directional_Accuracy', 'inference_time']
-        exist_cols = [c for c in cols if c in summary_df.columns] + [c for c in summary_df.columns if c not in cols]
-        summary_df[exist_cols].to_csv(f"results/summary_metrics.csv", index=False)
-        print("-> 'results/summary_metrics.csv' guardado.")
+        summary_df.to_csv("results/summary_metrics.csv", index=False)
+        logger.info("→ results/summary_metrics.csv saved.")
 
-    if detailed_predictions_log:
-        pd.DataFrame(detailed_predictions_log).to_csv(f"results/detailed_predictions.csv", index=False)
-        print("-> 'results/detailed_predictions.csv' guardado.")
-        
-    print("\n--- EJECUCIÓN FINALIZADA ---")
+        # Also save per-horizon summaries
+        for h in summary_df["Horizon"].unique():
+            h_df = summary_df[summary_df["Horizon"] == h]
+            h_df.to_csv(f"results/summary_metrics_h{h}.csv", index=False)
+            logger.info(f"→ results/summary_metrics_h{h}.csv saved.")
+
+    if detailed_log:
+        detailed_df = pd.DataFrame(detailed_log)
+        detailed_df.to_csv("results/detailed_predictions.csv", index=False)
+        logger.info("→ results/detailed_predictions.csv saved.")
+
+    # Cleanup checkpoint
+    checkpoint_path = "results/summary_checkpoint.csv"
+    if os.path.exists(checkpoint_path):
+        os.remove(checkpoint_path)
+
+    logger.info("\n" + "=" * 60)
+    logger.info("EXPERIMENT COMPLETE")
+    logger.info("=" * 60)
+
 
 if __name__ == "__main__":
     main()

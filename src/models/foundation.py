@@ -19,6 +19,12 @@ except ImportError:
 # Para Chronos
 from transformers import AutoModelForSeq2SeqLM, AutoModelForCausalLM, AutoTokenizer, pipeline
 
+# TimesFM (Google DeepMind)
+try:
+    import timesfm
+except ImportError:
+    timesfm = None
+
 from .base import BaseForecaster
 
 class FoundationWrapper(BaseForecaster):
@@ -71,6 +77,7 @@ class FoundationWrapper(BaseForecaster):
         # --- CHRONOS SETUP ---
         elif self.model_name == 'Chronos':
             model_path = config.get('model_path', "amazon/chronos-t5-small")
+            self.max_context = config.get('max_context', 300)
             print(f"Loading Chronos ({model_path})...")
             try:
                 from chronos import ChronosPipeline
@@ -82,6 +89,26 @@ class FoundationWrapper(BaseForecaster):
             except ImportError:
                  raise ImportError("Install 'chronos-forecasting' library.")
             print("Chronos Loaded.")
+
+        # --- TIMESFM SETUP (Google DeepMind) ---
+        elif self.model_name == 'TimesFM':
+            if timesfm is None:
+                raise ImportError("Please install 'timesfm' (pip install timesfm).")
+            self.context_length = config.get('context_length', 2048)
+            model_path = config.get('model_path', 'google/timesfm-2.0-500m-pytorch')
+            print(f"Loading TimesFM ({model_path})...")
+            self.tfm = timesfm.TimesFm(
+                hparams=timesfm.TimesFmHparams(
+                    backend="torch",
+                    per_core_batch_size=1,
+                    horizon_len=128,
+                ),
+                checkpoint=timesfm.TimesFmCheckpoint(
+                    huggingface_repo_id=model_path,
+                ),
+            )
+            print("TimesFM Loaded.")
+
         else:
             raise ValueError(f"Unknown Foundation Model: {self.model_name}")
 
@@ -150,10 +177,11 @@ class FoundationWrapper(BaseForecaster):
             
             return pd.DataFrame({'ds': future_dates, 'y_pred': y_pred_values})
 
-        # --- CHRONOS (Con Ensemble) ---
+        # --- CHRONOS (Con Ensemble + Context Truncation) ---
         elif self.model_name == 'Chronos':
-            # Chronos maneja su propio escalado interno, pero aumentamos las muestras
-            context_tensor = torch.tensor(self.last_train_df["y"].values)
+            # Truncate context to max_context to avoid OOM on long expanding windows
+            context_values = self.last_train_df["y"].values[-self.max_context:]
+            context_tensor = torch.tensor(context_values)
             
             forecast = self.pipeline.predict(
                 context_tensor,
@@ -167,4 +195,25 @@ class FoundationWrapper(BaseForecaster):
             last_date = self.last_train_df['ds'].iloc[-1]
             future_dates = pd.date_range(start=last_date, periods=horizon+1, freq=self.freq)[1:]
             
+            return pd.DataFrame({'ds': future_dates, 'y_pred': y_pred_values})
+
+        # --- TIMESFM ---
+        elif self.model_name == 'TimesFM':
+            values = self.last_train_df['y'].values[-self.context_length:]
+            # Map pandas frequency to TimesFM frequency code
+            # 0 = high-freq (daily), 1 = medium (weekly/monthly), 2 = low (yearly)
+            freq_map = {'D': 0, 'B': 0, 'W': 1, 'MS': 1, 'M': 1, 'Y': 2}
+            freq_code = freq_map.get(self.freq, 0)
+
+            point_forecast, _ = self.tfm.forecast(
+                inputs=[values.astype(np.float32)],
+                freq=[freq_code],
+            )
+            y_pred_values = point_forecast[0, :horizon]
+
+            last_date = self.last_train_df['ds'].iloc[-1]
+            future_dates = pd.date_range(
+                start=last_date, periods=horizon + 1, freq=self.freq
+            )[1:]
+
             return pd.DataFrame({'ds': future_dates, 'y_pred': y_pred_values})

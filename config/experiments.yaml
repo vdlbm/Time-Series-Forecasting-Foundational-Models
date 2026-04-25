@@ -1,103 +1,117 @@
+# =============================================================================
+# TFG: Comparative Analysis of Foundational Models and LLMs for Zero-Shot
+# Time Series Forecasting in Financial Decision-Making
+# =============================================================================
+# Expanding Window, Date-Based Splitting, Multi-Horizon
+# =============================================================================
+
 global:
-  project_name: "TFG_Sliding_Horizon1"
+  project_name: "TFG_Foundational_Models_Time_Series_Forecasting"
   time_col: "Date"
+  target_col: "Close"
   random_seed: 42
-  
-  # Valores por defecto
-  n_windows: 5
-  test_horizon: 1
+  start_date: "2022-01-01"
+  end_date: "2026-01-01"
+  initial_train_end: "2022-12-31"  # First fold trains on all data up to this date
 
-  datasets:
-    # --- RENTA VARIABLE ---
-    - name: "SP500_Monthly"
-      path: "data/SP500_Monthly.csv"
-      frequency: "M"
-      season_length: 12
-      target_col: "Close"
-      description: "Monthly closing price of the S&P 500 stock market index."
-      input_window_size: 48   # Train: Últimos 4 años (48 meses)
-      test_horizon: 1         # Predict: Siguiente mes
-      n_windows: 12           # Test: Último año evaluado mes a mes
+# =============================================================================
+# DATASETS
+# =============================================================================
+datasets:
+  # --- EQUITY ---
+  SP500_Monthly:
+    path: "DATA/SP500_Monthly.csv"
+    frequency: "MS"
+    season_length: 12
+    periods_per_year: 12
+    fold_step: "1M"
+    horizons: [1, 3]
+    description: "Monthly closing price of the S&P 500 stock market index."
 
-    - name: "SP500_Daily"
-      path: "data/SP500_Daily.csv"
-      frequency: "D"
-      season_length: 5
-      target_col: "Close"
-      description: "Daily closing price of the S&P 500 stock market index."
-      input_window_size: 90   # Train: Últimos 3 meses
-      test_horizon: 1         # Predict: Siguiente día
-      n_windows: 30           # Test: Últimos 30 días evaluados uno a uno
+  SP500_Daily:
+    path: "DATA/SP500_Daily.csv"
+    frequency: "B"           # Business days (Mon-Fri)
+    season_length: 5
+    periods_per_year: 252
+    fold_step: "1W"
+    horizons: [1, 5]         # 1 day ahead, 1 trading week ahead
+    description: "Daily closing price of the S&P 500 stock market index (Mon-Fri)."
 
-    # --- DIVISAS ---
-    - name: "EURUSD_Daily"
-      path: "data/EURUSD_Daily.csv"
-      frequency: "D"
-      season_length: 5
-      target_col: "Close"
-      description: "Daily exchange rate between Euro and US Dollar (EUR/USD)."
-      input_window_size: 90
-      test_horizon: 1
-      n_windows: 30
+  # --- FX ---
+  EURUSD_Daily:
+    path: "DATA/EURUSD_Daily.csv"
+    frequency: "B"           # Business days (Mon-Fri)
+    season_length: 5
+    periods_per_year: 252
+    fold_step: "1W"
+    horizons: [1, 5]
+    description: "Daily EUR/USD exchange rate (Mon-Fri)."
 
-    - name: "EURUSD_Monthly"
-      path: "data/EURUSD_Monthly.csv"
-      frequency: "M"
-      season_length: 12
-      target_col: "Close"
-      description: "Monthly exchange rate between Euro and US Dollar (EUR/USD)."
-      input_window_size: 48
-      test_horizon: 1
-      n_windows: 12
+  EURUSD_Monthly:
+    path: "DATA/EURUSD_Monthly.csv"
+    frequency: "MS"
+    season_length: 12
+    periods_per_year: 12
+    fold_step: "1M"
+    horizons: [1, 3]
+    description: "Monthly EUR/USD exchange rate."
 
-    # --- CRIPTO ---
-    - name: "BTC_Daily"
-      path: "data/BTC_Daily.csv"
-      frequency: "D"
-      season_length: 7
-      target_col: "Close"
-      description: "Daily closing price of Bitcoin (BTC) in USD."
-      input_window_size: 90
-      test_horizon: 1
-      n_windows: 30
+  # --- CRYPTO ---
+  BTC_Daily:
+    path: "DATA/BTC_Daily.csv"
+    frequency: "D"           # Calendar days (7 days/week, crypto never sleeps)
+    season_length: 7
+    periods_per_year: 365
+    fold_step: "1W"
+    horizons: [1, 7]         # 1 day ahead, 1 calendar week ahead
+    description: "Daily BTC/USD closing price (7 days/week)."
 
-    - name: "BTC_Monthly"
-      path: "data/BTC_Monthly.csv"
-      frequency: "M"
-      season_length: 12
-      target_col: "Close"
-      description: "Monthly closing price of Bitcoin (BTC) in USD."
-      input_window_size: 48
-      test_horizon: 1
-      n_windows: 12
+  BTC_Monthly:
+    path: "DATA/BTC_Monthly.csv"
+    frequency: "MS"
+    season_length: 12
+    periods_per_year: 12
+    fold_step: "1M"
+    horizons: [1, 3]
+    description: "Monthly BTC/USD closing price."
 
-    # --- MACRO ---
-    - name: "US_CPI_Monthly"
-      path: "data/US_CPI_Monthly.csv"
-      frequency: "M"
-      season_length: 12
-      target_col: "Close"
-      description: "Monthly US Consumer Price Index (CPI) for All Urban Consumers."
-      input_window_size: 48
-      test_horizon: 1
-      n_windows: 12
+  # --- MACRO ---
+  US_CPI_Monthly:
+    path: "DATA/US_CPI_Monthly.csv"
+    frequency: "MS"
+    season_length: 12
+    periods_per_year: 12
+    fold_step: "1M"
+    horizons: [1, 3]
+    description: "Monthly US Consumer Price Index (CPI) for All Urban Consumers."
 
+# =============================================================================
+# MODELS
+# =============================================================================
 models:
-  # CLÁSICOS
+  # --- BASELINE ---
+  naive:
+    type: "naive"
+    model_name: "Naive"
+
+  # --- CLASSICAL STATISTICAL ---
   arima:
     type: "classical"
     model_name: "AutoARIMA"
-  ses: 
+
+  ses:
     type: "classical"
     model_name: "SimpleExpSmoothing"
+
   holt:
     type: "classical"
-    model_name: "Holt" 
+    model_name: "Holt"
+
   holt_winters:
     type: "classical"
     model_name: "HoltWinters"
 
-  # FUNDACIONALES
+  # --- FOUNDATION MODELS (Time Series Specific) ---
   timegpt:
     type: "foundation"
     model_name: "TimeGPT"
@@ -114,10 +128,29 @@ models:
     type: "foundation"
     model_name: "Chronos"
     model_path: "amazon/chronos-t5-small"
+    max_context: 300
 
-  # LLM
-  llama3_local:
+  timesfm:
+    type: "foundation"
+    model_name: "TimesFM"
+    model_path: "google/timesfm-2.0-500m-pytorch"
+    context_length: 2048
+
+  # --- GENERAL-PURPOSE LLMs (Zero-Shot) ---
+  gemma4_local:
     type: "llm_local"
-    model_path: "models/Meta-Llama-3.1-8B-Instruct-Q8_0.gguf" 
-    context_window_size: 2048 
-    max_new_tokens: 10
+    model_name: "Gemma4-E4B"
+    model_path: "models/gemma-4-E4B-it-Q8_0.gguf"
+    context_window_size: 4096
+    llm_window_size: 40
+    max_new_tokens: 20
+    disable_thinking: false          # Gemma 4 does not have thinking mode
+
+  qwen3_local:
+    type: "llm_local"
+    model_name: "Qwen3-8B"
+    model_path: "models/Qwen3-8B-Q8_0.gguf"
+    context_window_size: 4096
+    llm_window_size: 40
+    max_new_tokens: 20
+    disable_thinking: true            # Qwen3 has thinking mode ON by default — must disable

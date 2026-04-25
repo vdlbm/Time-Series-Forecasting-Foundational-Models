@@ -1,53 +1,108 @@
 import pandas as pd
 from typing import Generator, Tuple
 
-class RollingWindowSplitter:
+
+class ExpandingWindowSplitter:
     """
-    Generates time-ordered train/test splits for Backtesting.
-    
-    UPDATED: Implements a 'Sliding Window' strategy.
-    - Train set: Fixed size (input_window_size) moving forward.
-    - Test set: Fixed size (test_horizon) moving forward.
+    Date-based Expanding Window splitter for time series backtesting.
+
+    Instead of splitting by integer index, splits are driven by calendar dates.
+    This avoids issues with leap years, market holidays, and irregular frequencies.
+
+    Strategy:
+    - Training window GROWS with each fold (expanding window).
+    - The boundary advances by a fixed calendar offset (e.g., 1 week, 1 month).
+    - Missing dates (holidays, weekends) are handled implicitly: the train set
+      includes all data points up to the boundary, and the test set starts at
+      the first available data point after the boundary.
     """
-    
-    def __init__(self, n_windows: int, test_horizon: int, input_window_size: int):
+
+    def __init__(self, initial_train_end: str, fold_step: str, test_horizon: int):
         """
         Args:
-            n_windows (int): Number of folds to test.
-            test_horizon (int): Number of steps to predict (usually 1).
-            input_window_size (int): Exact size of the training window.
+            initial_train_end: Date string (e.g., '2022-12-31'). The first fold
+                               trains on all data up to this date.
+            fold_step: Calendar offset string. '1W' for 1 week, '1M' for 1 month.
+            test_horizon: Number of data points to include in the test set.
         """
-        self.n_windows = n_windows
+        self.initial_train_end = pd.Timestamp(initial_train_end)
         self.test_horizon = test_horizon
-        self.input_window_size = input_window_size
 
-    def split(self, df: pd.DataFrame) -> Generator[Tuple[pd.DataFrame, pd.DataFrame], None, None]:
-        total_rows = len(df)
-        
-        # Validar tamaño necesario: Ventana Entreno + (Ventanas Test * Horizonte)
-        required_samples = self.input_window_size + (self.n_windows * self.test_horizon)
-        
-        if total_rows < required_samples:
+        # Parse fold_step into a pd.DateOffset
+        if fold_step.upper() == "1W":
+            self.fold_offset = pd.DateOffset(weeks=1)
+        elif fold_step.upper() == "1M":
+            self.fold_offset = pd.DateOffset(months=1)
+        else:
             raise ValueError(
-                f"Dataset too small. Needed {required_samples} rows, "
-                f"but got {total_rows}. Reduce n_windows or input_window_size."
+                f"Unsupported fold_step: '{fold_step}'. Use '1W' or '1M'."
             )
 
-        # Calculamos dónde empieza el PRIMER test
-        start_test_idx = total_rows - (self.n_windows * self.test_horizon)
-        
-        for i in range(self.n_windows):
-            cutoff = start_test_idx + (i * self.test_horizon)
-            end_test = cutoff + self.test_horizon
-            
-            # --- LÓGICA SLIDING WINDOW ---
-            # El inicio del entrenamiento se mueve, manteniendo el tamaño fijo
-            start_train = cutoff - self.input_window_size
-            
-            # 1. Train Set: Tamaño Fijo
-            train = df.iloc[start_train:cutoff].copy()
-            
-            # 2. Test Set: Horizonte Futuro (Normalmente 1)
-            test = df.iloc[cutoff:end_test].copy()
-            
+    def count_folds(self, df: pd.DataFrame) -> int:
+        """
+        Counts the total number of folds without generating data.
+
+        Args:
+            df: DataFrame with a 'ds' datetime column.
+
+        Returns:
+            Number of folds that can be generated.
+        """
+        n = 0
+        fold_idx = 0
+        while True:
+            boundary = self.initial_train_end + self.fold_offset * fold_idx
+            candidates = df[df["ds"] > boundary]
+            if len(candidates) < self.test_horizon:
+                break
+            # Also verify there is at least 1 training point
+            train = df[df["ds"] <= boundary]
+            if len(train) < 1:
+                fold_idx += 1
+                continue
+            n += 1
+            fold_idx += 1
+        return n
+
+    def split(
+        self, df: pd.DataFrame
+    ) -> Generator[Tuple[pd.DataFrame, pd.DataFrame], None, None]:
+        """
+        Yields (train, test) tuples with expanding training windows.
+
+        Args:
+            df: DataFrame with columns ['ds', 'y']. 'ds' must be datetime.
+                The DataFrame should be sorted by 'ds' ascending.
+
+        Yields:
+            (train_df, test_df) where:
+            - train_df: all rows with ds <= boundary (grows each fold)
+            - test_df: the next `test_horizon` rows after boundary
+        """
+        if "ds" not in df.columns:
+            raise ValueError("DataFrame must contain a 'ds' column.")
+
+        # Ensure sorted
+        df = df.sort_values("ds").reset_index(drop=True)
+
+        fold_idx = 0
+        while True:
+            boundary = self.initial_train_end + self.fold_offset * fold_idx
+
+            # Train: all data up to and including boundary
+            train = df[df["ds"] <= boundary].copy()
+
+            # Test: first `test_horizon` points strictly after boundary
+            candidates = df[df["ds"] > boundary]
+
+            if len(candidates) < self.test_horizon:
+                break  # Not enough future data for this fold
+
+            if len(train) < 1:
+                fold_idx += 1
+                continue  # No training data yet, skip
+
+            test = candidates.iloc[: self.test_horizon].copy()
+
             yield train, test
+            fold_idx += 1

@@ -60,7 +60,7 @@ try:
     
     # Verificación de nombres de columna (El error común)
     if 'TimeGPT' not in fcst_df.columns:
-        print("\n⚠️ ALERTA: No veo la columna 'TimeGPT'. Puede que se llame diferente.")
+        print("\n⚠️ ALERTA: No se detecta la columna 'TimeGPT'. Puede que se llame diferente.")
         
 except Exception as e:
     print("\n❌ ERROR FATAL DE TIMEGPT:")

@@ -55,23 +55,16 @@ class FoundationWrapper(BaseForecaster):
                 raise ImportError("Please install 'uni2ts' and 'gluonts'.")
             
             size = config.get('size', 'small')
-            self.prediction_length = config.get('test_horizon', 1)
             self.context_length = config.get('context_length', 90)
             self.patch_size = config.get('patch_size', 'auto')
             self.batch_size = config.get('batch_size', 32)
+            self.moirai_size = size
             
             print(f"Loading Moirai ({size})...")
             self.module = MoiraiModule.from_pretrained(f"Salesforce/moirai-1.0-R-{size}")
-            self.predictor = MoiraiForecast(
-                module=self.module,
-                prediction_length=self.prediction_length,
-                context_length=self.context_length,
-                patch_size=self.patch_size,
-                num_samples=100,
-                target_dim=1,
-                feat_dynamic_real_dim=0,
-                past_feat_dynamic_real_dim=0,
-            ).create_predictor(batch_size=self.batch_size)
+            # NOTE: predictor is created lazily in predict() so that
+            # prediction_length matches the actual horizon of each call.
+            self._moirai_predictor_cache: dict = {}
             print("Moirai Loaded.")
 
         # --- CHRONOS SETUP ---
@@ -162,26 +155,37 @@ class FoundationWrapper(BaseForecaster):
 
         # --- MOIRAI (Con Escalado Manual) ---
         elif self.model_name == 'Moirai':
-            # 1. Escalar entrada: (Valor - Media) / Desv
+            # 1. Build / reuse predictor for this specific horizon
+            if horizon not in self._moirai_predictor_cache:
+                self._moirai_predictor_cache[horizon] = MoiraiForecast(
+                    module=self.module,
+                    prediction_length=horizon,
+                    context_length=self.context_length,
+                    patch_size=self.patch_size,
+                    num_samples=100,
+                    target_dim=1,
+                    feat_dynamic_real_dim=0,
+                    past_feat_dynamic_real_dim=0,
+                ).create_predictor(batch_size=self.batch_size)
+            predictor = self._moirai_predictor_cache[horizon]
+
+            # 2. Escalar entrada: (Valor - Media) / Desv
             df_scaled = self.last_train_df.copy()
             df_scaled['y'] = (df_scaled['y'] - self.scaler_mean) / self.scaler_std
             
-            # 2. Preparar Dataset GluonTS
+            # 3. Preparar Dataset GluonTS
             df_moirai = df_scaled.set_index('ds')
             df_moirai = df_moirai.asfreq(self.freq)
             
             # --- FIX: PARCHE PARA GLUONTS/PANDAS ('MS' BUG) ---
-            # Pandas moderno lanza error si pasamos 'MS' a to_period().
-            # Mapeamos 'MS' (Inicio Mes) a 'M' (Mensual Genérico) solo para GluonTS.
-            # Los datos siguen estando en el día 1, pero GluonTS deja de quejarse.
             gluonts_freq = self.freq
             if gluonts_freq == 'MS':
                 gluonts_freq = 'M'
             
             ds = PandasDataset(dict(df_moirai), freq=gluonts_freq)
             
-            # 3. Predecir
-            forecast_it = self.predictor.predict(ds)
+            # 4. Predecir
+            forecast_it = predictor.predict(ds)
             forecast = next(forecast_it)
             
             # 4. Obtener media (en escala normalizada)

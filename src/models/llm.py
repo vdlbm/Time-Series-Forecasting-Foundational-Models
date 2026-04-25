@@ -83,8 +83,6 @@ class LocalLLMWrapper(BaseForecaster):
 
         # Stop tokens (universal + model-specific safety nets)
         stop_tokens = ["History:", "Note:", "Sequence:", "Based on"]
-        if self.disable_thinking:
-            stop_tokens.append("<think>")  # Safety net: halt if thinking starts
         if horizon == 1:
             stop_tokens.append(",")
 
